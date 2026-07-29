@@ -1,0 +1,903 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Common helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Admins by email
+    function isAdmin() {
+      return isVerified()
+        && (
+          isSignedIn() &&
+                  (
+                    request.auth.token.email == "info@unityhealthcarestaffing.co.uk" ||
+                    request.auth.token.email == "valentine@unityhealthcarestaffing.co.uk" ||
+                    request.auth.token.email == "valentine.c.enyi@gmail.com"
+                  )
+        );
+    }
+
+    // ✅ SAFE: avoid rule crash if user doc doesn't exist yet
+    function myUser() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
+    // ========================================================
+    // BEGIN GENERATED STRUCTURED ADMIN HELPERS
+    //
+    // Generated from functions/adminAuthorization.js.
+    // Hierarchical area/action/preset routing keeps every
+    // permission evaluation below Firestore's expression limit.
+    // These helpers remain disconnected from production
+    // allow statements.
+    // ========================================================
+
+    function ruleAdminAccess() {
+      let user = myUser();
+
+      return (
+        "adminAccess" in user &&
+        user.adminAccess is map
+      )
+        ? user.adminAccess
+        : {};
+    }
+
+    function ruleAdminPreset() {
+      let access = ruleAdminAccess();
+
+      return (
+        "preset" in access &&
+        access.preset is string
+      )
+        ? access.preset
+        : "";
+    }
+
+    function ruleAdminProfileStatus() {
+      let user = myUser();
+
+      return (
+        "status" in user &&
+        user.status is string
+      )
+        ? user.status.lower()
+        : (
+            "accountStatus" in user &&
+            user.accountStatus is string
+          )
+            ? user.accountStatus.lower()
+            : "";
+    }
+
+    function ruleAdminProfileRole() {
+      let user = myUser();
+
+      return (
+        "role" in user &&
+        user.role is string
+      )
+        ? user.role.lower()
+        : (
+            "accountType" in user &&
+            user.accountType is string
+          )
+            ? user.accountType.lower()
+            : "";
+    }
+
+    function ruleAdminIsEnabled() {
+      let user = myUser();
+      let access = ruleAdminAccess();
+      let status = ruleAdminProfileStatus();
+      let role = ruleAdminProfileRole();
+
+      return isVerified()
+        && "adminAccess" in user
+        && user.adminAccess is map
+        && "version" in access
+        && access.version is int
+        && access.version >= 1
+        && "enabled" in access
+        && access.enabled == true
+        && "active" in access
+        && access.active == true
+        && (
+          !("isActive" in user) ||
+          user.isActive != false
+        )
+        && !(
+          status in [
+            "disabled",
+            "inactive",
+            "suspended",
+            "blocked",
+            "rejected"
+          ]
+        )
+        && (
+          role == "admin" ||
+          (
+            "isAdmin" in user &&
+            user.isAdmin == true
+          )
+        )
+        && ruleAdminPreset() in ["operations_admin", "all_client_viewer", "assigned_client_viewer", "assigned_client_manager", "shift_creator_all", "shift_creator_assigned", "staff_portal_only", "custom"];
+    }
+
+    function ruleAdminPermissions() {
+      let access = ruleAdminAccess();
+
+      return (
+        "permissions" in access &&
+        access.permissions is map
+      )
+        ? access.permissions
+        : {};
+    }
+
+    function ruleAdminCustomScope(area, action) {
+      let permissions = ruleAdminPermissions();
+      let areaPermissions = (
+        area in permissions &&
+        permissions[area] is map
+      )
+        ? permissions[area]
+        : {};
+
+      return (
+        action in areaPermissions &&
+        areaPermissions[action] is string &&
+        areaPermissions[action] in [
+          "none",
+          "assigned",
+          "all"
+        ]
+      )
+        ? areaPermissions[action]
+        : "none";
+    }
+
+    function ruleAdminCustomBoolean(area, action) {
+      let permissions = ruleAdminPermissions();
+      let areaPermissions = (
+        area in permissions &&
+        permissions[area] is map
+      )
+        ? permissions[area]
+        : {};
+
+      return area == "adminManagement"
+        ? false
+        : action == ""
+          ? (
+              area in permissions &&
+              permissions[area] is bool &&
+              permissions[area] == true
+            )
+          : (
+              action in areaPermissions &&
+              areaPermissions[action] is bool &&
+              areaPermissions[action] == true
+            );
+    }
+
+    function ruleAdmin_Scope_clients_edit(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_clients_view(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "all_client_viewer"
+          ? "all"
+        : preset == "assigned_client_viewer"
+          ? "assigned"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+        : preset == "shift_creator_all"
+          ? "all"
+        : preset == "shift_creator_assigned"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_invoices_manage(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_invoices_view(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_shifts_assign(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_shifts_cancel(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_shifts_create(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+        : preset == "shift_creator_all"
+          ? "all"
+        : preset == "shift_creator_assigned"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_shifts_edit(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_shifts_view(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "all_client_viewer"
+          ? "all"
+        : preset == "assigned_client_viewer"
+          ? "assigned"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+        : preset == "shift_creator_all"
+          ? "all"
+        : preset == "shift_creator_assigned"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_timesheets_approve(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+    function ruleAdmin_Scope_timesheets_view(preset) {
+      return preset == "operations_admin"
+        ? "all"
+        : preset == "assigned_client_manager"
+          ? "assigned"
+          : "none";
+    }
+
+    function ruleAdmin_Scope_Area_clients(preset, action) {
+      return action == "edit"
+        ? ruleAdmin_Scope_clients_edit(preset)
+        : action == "view"
+          ? ruleAdmin_Scope_clients_view(preset)
+          : "none";
+    }
+    function ruleAdmin_Scope_Area_invoices(preset, action) {
+      return action == "manage"
+        ? ruleAdmin_Scope_invoices_manage(preset)
+        : action == "view"
+          ? ruleAdmin_Scope_invoices_view(preset)
+          : "none";
+    }
+    function ruleAdmin_Scope_Area_shifts(preset, action) {
+      return action == "assign"
+        ? ruleAdmin_Scope_shifts_assign(preset)
+        : action == "cancel"
+          ? ruleAdmin_Scope_shifts_cancel(preset)
+        : action == "create"
+          ? ruleAdmin_Scope_shifts_create(preset)
+        : action == "edit"
+          ? ruleAdmin_Scope_shifts_edit(preset)
+        : action == "view"
+          ? ruleAdmin_Scope_shifts_view(preset)
+          : "none";
+    }
+    function ruleAdmin_Scope_Area_timesheets(preset, action) {
+      return action == "approve"
+        ? ruleAdmin_Scope_timesheets_approve(preset)
+        : action == "view"
+          ? ruleAdmin_Scope_timesheets_view(preset)
+          : "none";
+    }
+
+    function ruleAdminStandardScope(preset, area, action) {
+      return area == "clients"
+        ? ruleAdmin_Scope_Area_clients(preset, action)
+        : area == "invoices"
+          ? ruleAdmin_Scope_Area_invoices(preset, action)
+        : area == "shifts"
+          ? ruleAdmin_Scope_Area_shifts(preset, action)
+        : area == "timesheets"
+          ? ruleAdmin_Scope_Area_timesheets(preset, action)
+          : "none";
+    }
+
+    function ruleAdmin_Boolean_payroll_manage(preset) {
+      return preset == "operations_admin"
+        ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_payroll_view(preset) {
+      return preset == "operations_admin"
+        ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_staffApplications_manage(preset) {
+      return preset == "operations_admin"
+        ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_staffApplications_view(preset) {
+      return preset == "operations_admin"
+        ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_staffPortalAccess_root(preset) {
+      return preset == "operations_admin"
+        ? true
+        : preset == "assigned_client_manager"
+          ? true
+        : preset == "staff_portal_only"
+          ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_users_manage(preset) {
+      return preset == "operations_admin"
+        ? true
+          : false;
+    }
+    function ruleAdmin_Boolean_users_view(preset) {
+      return preset == "operations_admin"
+        ? true
+        : preset == "assigned_client_manager"
+          ? true
+          : false;
+    }
+
+    function ruleAdmin_Boolean_Area_payroll(preset, action) {
+      return action == "manage"
+        ? ruleAdmin_Boolean_payroll_manage(preset)
+        : action == "view"
+          ? ruleAdmin_Boolean_payroll_view(preset)
+          : false;
+    }
+    function ruleAdmin_Boolean_Area_staffApplications(preset, action) {
+      return action == "manage"
+        ? ruleAdmin_Boolean_staffApplications_manage(preset)
+        : action == "view"
+          ? ruleAdmin_Boolean_staffApplications_view(preset)
+          : false;
+    }
+    function ruleAdmin_Boolean_Area_staffPortalAccess(preset, action) {
+      return action == ""
+        ? ruleAdmin_Boolean_staffPortalAccess_root(preset)
+          : false;
+    }
+    function ruleAdmin_Boolean_Area_users(preset, action) {
+      return action == "manage"
+        ? ruleAdmin_Boolean_users_manage(preset)
+        : action == "view"
+          ? ruleAdmin_Boolean_users_view(preset)
+          : false;
+    }
+
+    function ruleAdminStandardBoolean(preset, area, action) {
+      return area == "payroll"
+        ? ruleAdmin_Boolean_Area_payroll(preset, action)
+        : area == "staffApplications"
+          ? ruleAdmin_Boolean_Area_staffApplications(preset, action)
+        : area == "staffPortalAccess"
+          ? ruleAdmin_Boolean_Area_staffPortalAccess(preset, action)
+        : area == "users"
+          ? ruleAdmin_Boolean_Area_users(preset, action)
+          : false;
+    }
+
+    function ruleAdminPermissionScope(area, action) {
+      let preset = ruleAdminPreset();
+
+      return !ruleAdminIsEnabled()
+        ? "none"
+        : preset == "custom"
+          ? ruleAdminCustomScope(area, action)
+          : ruleAdminStandardScope(
+              preset,
+              area,
+              action
+            );
+    }
+
+    function ruleAdminBooleanPermission(area, action) {
+      let preset = ruleAdminPreset();
+
+      return !ruleAdminIsEnabled()
+        ? false
+        : preset == "custom"
+          ? ruleAdminCustomBoolean(area, action)
+          : ruleAdminStandardBoolean(
+              preset,
+              area,
+              action
+            );
+    }
+
+    function ruleAdminAssignedClientIds() {
+      let access = ruleAdminAccess();
+
+      return (
+        "assignedClientIds" in access &&
+        access.assignedClientIds is list
+      )
+        ? access.assignedClientIds
+        : [];
+    }
+
+    function ruleAdminIsAssignedClient(clientId) {
+      return clientId is string
+        && clientId != ""
+        && clientId in ruleAdminAssignedClientIds();
+    }
+
+    function ruleAdminCanAccessClient(area, action, clientId) {
+      let scope = ruleAdminPermissionScope(area, action);
+
+      return scope == "all"
+        || (
+          scope == "assigned" &&
+          ruleAdminIsAssignedClient(clientId)
+        );
+    }
+
+    function ruleAdminHasBoolean(area, action) {
+      return ruleAdminBooleanPermission(area, action);
+    }
+
+    // ========================================================
+    // END GENERATED STRUCTURED ADMIN HELPERS
+    // ========================================================
+
+    /*
+     * Administrator privilege fields must be controlled
+     * by protected administrators or trusted server code.
+     */
+    function createsAdminPrivilege() {
+      return (
+        (
+          "role" in request.resource.data &&
+          request.resource.data.role is string &&
+          request.resource.data.role.lower() == "admin"
+        ) ||
+        (
+          "accountType" in request.resource.data &&
+          request.resource.data.accountType is string &&
+          request.resource.data.accountType.lower() == "admin"
+        ) ||
+        (
+          "isAdmin" in request.resource.data &&
+          request.resource.data.isAdmin == true
+        ) ||
+        ("adminAccess" in request.resource.data) ||
+        ("adminAccessUpdatedAt" in request.resource.data) ||
+        ("adminAccessUpdatedBy" in request.resource.data)
+      );
+    }
+
+    function changesAdminSecurityFields() {
+      return request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasAny([
+          "role",
+          "accountType",
+          "isAdmin",
+          "adminAccess",
+          "adminAccessUpdatedAt",
+          "adminAccessUpdatedBy"
+        ]);
+    }
+
+    // ---------- Field helpers ----------
+    function sameDocField(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+
+    function setOnce(field) {
+      return !(field in resource.data) || request.resource.data[field] == resource.data[field];
+    }
+
+    function unchanged(field) {
+      return !(field in resource.data) || request.resource.data[field] == resource.data[field];
+    }
+
+    function setTrueOnce(field) {
+      return !(field in resource.data)
+        ? (request.resource.data[field] == true)
+        : (request.resource.data[field] == resource.data[field]);
+    }
+
+    function matchesAuthIfPresent(field, expected) {
+      return !(field in request.resource.data) || request.resource.data[field] == expected;
+    }
+
+    // ---------- Staff code helpers (4 digits) ----------
+    function isValid4DigitCode(code) {
+      return (code is string) && code.matches('^[0-9]{4}$');
+    }
+
+    function reservedByMe(code) {
+      return isValid4DigitCode(code)
+        && exists(/databases/$(database)/documents/staffCodes/$(code))
+        && get(/databases/$(database)/documents/staffCodes/$(code)).data.uid == request.auth.uid;
+    }
+
+    function staffIsActiveOnboarded() {
+      let u = myUser();
+      let status = (u.status != null ? u.status : (u.accountStatus != null ? u.accountStatus : "")).lower();
+      let active = (u.isActive == true) || status == "active" || status == "approved" || status == "enabled";
+
+      let role = (u.role != null ? u.role : (u.accountType != null ? u.accountType : "")).lower();
+      let staffish = (role == "staff") || (u.isStaff == true);
+
+      let onboarded = (u.onboardingCompleted == true) || (u.onboarded == true);
+
+      let roleOk = staffish || role == "" || role == "user";
+
+      return isSignedIn() && active && onboarded && roleOk;
+    }
+
+    // ---------- Users collection ----------
+    match /users/{uid} {
+      allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn()
+        && uid == request.auth.uid
+        && matchesAuthIfPresent("uid", uid)
+        && matchesAuthIfPresent("email", request.auth.token.email)
+        && (
+          isAdmin() ||
+          !createsAdminPrivilege()
+        );
+
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          uid == request.auth.uid &&
+
+          !changesAdminSecurityFields() &&
+
+          ( !("uid" in resource.data) || sameDocField("uid") ) &&
+          ( !("email" in resource.data) || sameDocField("email") ) &&
+
+          !(
+            "role" in request.resource.data &&
+            request.resource.data.role == "admin" &&
+            !isAdmin()
+          ) &&
+          !(
+            "isAdmin" in request.resource.data &&
+            request.resource.data.isAdmin == true &&
+            !isAdmin()
+          ) &&
+
+          unchanged("isActive") &&
+          unchanged("activatedAt") &&
+          unchanged("activatedBy") &&
+          unchanged("status") &&
+
+          setTrueOnce("onboardingCompleted") &&
+          setOnce("onboardingCompletedAt") &&
+          setOnce("lastApplicationId") &&
+          setOnce("lastApplicationAt") &&
+
+          setOnce("clientCode") &&
+
+          (
+            !("staffCode" in request.resource.data) ||
+            (
+              setOnce("staffCode") &&
+              reservedByMe(request.resource.data.staffCode)
+            )
+          ) &&
+
+          (
+            !("publicId" in request.resource.data) ||
+            (
+              setOnce("publicId") &&
+              (
+                ("staffCode" in request.resource.data
+                  ? request.resource.data.publicId == request.resource.data.staffCode
+                  : reservedByMe(request.resource.data.publicId)
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    // ---------- Clients ----------
+    match /clients/{uid} {
+      allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin() || ruleAdminCanAccessClient("clients", "view", uid));
+
+      allow create: if isSignedIn()
+        && uid == request.auth.uid
+        && matchesAuthIfPresent("uid", uid)
+        && matchesAuthIfPresent("email", request.auth.token.email);
+
+      allow update: if isSignedIn() && uid == request.auth.uid
+        && ( !("uid" in resource.data) || sameDocField("uid") )
+        && ( !("email" in resource.data) || sameDocField("email") )
+        && setOnce("clientCode")
+        && setOnce("publicId")
+        && unchanged("isActive")
+        && unchanged("activatedAt")
+        && unchanged("activatedBy")
+        && unchanged("status");
+
+      allow update: if isAdmin() || ruleAdminCanAccessClient("clients", "edit", uid);
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- Client code reservations ----------
+    match /clientCodes/{code} {
+      allow read: if isAdmin();
+
+      allow create: if isVerified()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.code == code
+        && !exists(/databases/$(database)/documents/clientCodes/$(code));
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /clientCounters/{uid} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- Staff code reservations ----------
+    match /staffCodes/{code} {
+      allow read: if isAdmin();
+
+      allow create: if isVerified()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.code == code
+        && isValid4DigitCode(code)
+        && !exists(/databases/$(database)/documents/staffCodes/$(code));
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /staffCounters/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ---------- Staff applications ----------
+    match /staffApplications/{appId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
+
+      allow create: if isVerified()
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.uid == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- Shifts ----------
+    // STEP37N_ASSIGNED_ADMIN_SHIFTS
+    match /shifts/{shiftId} {
+
+      function isCreator() {
+        return isSignedIn() && resource.data.createdBy == request.auth.uid;
+      }
+
+      // ✅ Your app uses bookedStaffId/requestedStaffId (and sometimes bookedBy)
+      function isBookedOrRequestedByUser() {
+        return isSignedIn() && (
+          resource.data.bookedBy == request.auth.uid ||
+          resource.data.bookedStaffId == request.auth.uid ||
+          resource.data.requestedStaffId == request.auth.uid
+        );
+      }
+
+      function isClientForShift() {
+        return isSignedIn() && (
+          resource.data.clientId == request.auth.uid ||
+          resource.data.createdBy == request.auth.uid // backward compatibility
+        );
+      }
+
+      // ✅ READ
+      allow read: if
+        isAdmin() ||
+        ruleAdminCanAccessClient(
+          "shifts",
+          "view",
+          resource.data.clientId
+        ) ||
+        (
+          isSignedIn() &&
+          (
+            isClientForShift() ||
+            isCreator() ||
+            isBookedOrRequestedByUser() ||
+
+            (staffIsActiveOnboarded() && resource.data.status == "open") ||
+
+            (resource.data.status == "client_pending" && resource.data.createdBy == request.auth.uid)
+          )
+        );
+
+      // ✅ CREATE (client creates shifts)
+      allow create: if
+        isAdmin() ||
+        ruleAdminCanAccessClient(
+          "shifts",
+          "create",
+          request.resource.data.clientId
+        ) ||
+        (isVerified()
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.clientId == request.auth.uid
+        );
+
+      // ✅ UPDATE
+      allow update: if
+        isAdmin()
+
+        // Staff booking request: OPEN -> PENDING_ADMIN
+        || (
+          staffIsActiveOnboarded()
+          && resource.data.status == "open"
+          && (resource.data.bookedBy == null)
+          && (resource.data.bookedStaffId == null)
+          && (resource.data.requestedStaffId == null)
+
+          && request.resource.data.status == "pending_admin"
+
+          && (
+            request.resource.data.bookedBy == request.auth.uid ||
+            request.resource.data.bookedStaffId == request.auth.uid ||
+            request.resource.data.requestedStaffId == request.auth.uid
+          )
+
+          // protect creator/client linkage
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.clientId == resource.data.clientId
+        )
+
+        // General updates by owner (creator/client) or staff involved
+        || (
+          isSignedIn()
+          && (
+            (resource.data.bookedBy == request.auth.uid) ||
+            (resource.data.bookedStaffId == request.auth.uid) ||
+            (resource.data.requestedStaffId == request.auth.uid) ||
+            (resource.data.createdBy == request.auth.uid) ||
+            (resource.data.clientId == request.auth.uid)
+          )
+
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.clientId == resource.data.clientId
+
+          // bookedBy can stay same or be set to authed user (legacy)
+          && (
+            request.resource.data.bookedBy == resource.data.bookedBy ||
+            request.resource.data.bookedBy == request.auth.uid ||
+            !( "bookedBy" in request.resource.data )
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- Availability ----------
+    match /availability/{docId} {
+      allow read: if isAdmin() || (staffIsActiveOnboarded() && resource.data.staffId == request.auth.uid);
+
+      allow create: if isVerified()
+        && staffIsActiveOnboarded()
+        && request.resource.data.staffId == request.auth.uid;
+
+      allow update, delete: if staffIsActiveOnboarded()
+        && resource.data.staffId == request.auth.uid
+        && request.resource.data.staffId == resource.data.staffId;
+    }
+
+    // ---------- Timesheets ----------
+    match /timesheets/{docId} {
+
+      // ✅ Client can read ONLY their approved timesheets (for "My Invoices / Payment due")
+      // Backward compatible: if old docs have clientEmail but missing clientId, allow by email too.
+      function isClientApprovedTimesheet() {
+        return isSignedIn()
+          && (resource.data.status != null ? resource.data.status.lower() : "") == "approved"
+          && (
+            (resource.data.clientId == request.auth.uid) ||
+            (
+              (resource.data.clientEmail != null) &&
+              (resource.data.clientEmail == request.auth.token.email)
+            )
+          );
+      }
+
+      // ✅ Staff can read their own timesheets when available
+      // ✅ SAFE: if availableAt is missing/null, allow read (prevents permission-denied crashes)
+      function isStaffReadableTimesheet() {
+        return staffIsActiveOnboarded()
+          && resource.data.staffId == request.auth.uid
+          && (
+            !(resource.data.availableAt is timestamp) ||
+            request.time >= resource.data.availableAt
+          );
+      }
+
+      allow read: if isAdmin() || isStaffReadableTimesheet() || isClientApprovedTimesheet();
+
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- Payroll ----------
+    match /payroll/{docId} {
+      allow create, update, delete: if isAdmin();
+      allow read: if isAdmin() || (staffIsActiveOnboarded() && resource.data.staffId == request.auth.uid);
+    }
+
+    // ---------- Invoices ----------
+    match /invoices/{invoiceId} {
+
+      function isInvoiceOwner() {
+        return isSignedIn() && (
+          (resource.data.clientId == request.auth.uid) ||
+          (resource.data.clientUid == request.auth.uid) ||
+          (resource.data.clientUserId == request.auth.uid) ||
+          (resource.data.uid == request.auth.uid) ||
+          (
+            (resource.data.clientEmail != null) &&
+            (resource.data.clientEmail == request.auth.token.email)
+          ) ||
+          (
+            (resource.data.email != null) &&
+            (resource.data.email == request.auth.token.email)
+          )
+        );
+      }
+
+      allow read: if isAdmin() || isInvoiceOwner();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ---------- Fallback ----------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
