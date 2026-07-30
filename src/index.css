@@ -5,17 +5,32 @@
 /* ---------- Global base styles ---------- */
 
 :root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #0f172a; /* slate-900 */
-  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a;
+  /* slate-900 */
+  background-color: #f1f5f9;
+  /* slate-100 */
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
+  /* better than 100vh on mobile */
+  overflow-x: hidden;
+}
+
+/* Ensure root never overflows on mobile */
+#root {
+  min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 /* Make buttons/inputs inherit font */
@@ -26,21 +41,33 @@ textarea {
   font: inherit;
 }
 
+/* Smooth fonts a bit */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-width: 0;
+  /* prevents flex children forcing overflow */
+}
+
 /* ---------- Shared input style used across the app ---------- */
 
 .uh-input {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 0.5rem; /* 8px */
-  border: 1px solid #cbd5e1; /* slate-300 */
+  border-radius: 0.5rem;
+  /* 8px */
+  border: 1px solid #cbd5e1;
+  /* slate-300 */
   background-color: #ffffff;
-  font-size: 0.875rem; /* text-sm */
+  font-size: 0.875rem;
+  /* text-sm */
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .uh-input:focus {
-  border-color: #0e7490; /* cyan-700 */
+  border-color: #0e7490;
+  /* cyan-700 */
   box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.25);
 }
 
@@ -54,4 +81,492 @@ input[type="number"]::-webkit-outer-spin-button {
 /* Remove number spinners (Firefox) */
 input[type="number"] {
   -moz-appearance: textfield;
+}
+
+/* Hide scrollbars for horizontal tab bars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Make tap targets nicer on mobile */
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Images never overflow their containers */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ==========================================================
+   UNITY HEALTHCARE — MODERN APPLICATION THEME
+   ========================================================== */
+
+:root {
+  --unity-navy: #082f49;
+  --unity-blue: #0369a1;
+  --unity-cyan: #0891b2;
+  --unity-teal: #0f766e;
+  --unity-surface: rgba(255, 255, 255, 0.88);
+  --unity-border: rgba(148, 163, 184, 0.28);
+  --unity-shadow:
+    0 22px 60px rgba(15, 23, 42, 0.09),
+    0 3px 12px rgba(8, 145, 178, 0.06);
+}
+
+body {
+  color: #0f172a;
+  background:
+    radial-gradient(circle at 8% 8%,
+      rgba(34, 211, 238, 0.16),
+      transparent 30rem),
+    radial-gradient(circle at 92% 12%,
+      rgba(14, 165, 233, 0.12),
+      transparent 34rem),
+    radial-gradient(circle at 75% 85%,
+      rgba(20, 184, 166, 0.11),
+      transparent 32rem),
+    linear-gradient(145deg,
+      #f8fafc 0%,
+      #eef9fc 42%,
+      #f1f5f9 100%);
+  background-attachment: fixed;
+}
+
+/* Main application background */
+.uh-app-shell {
+  position: relative;
+  isolation: isolate;
+  overflow-x: hidden;
+  background:
+    linear-gradient(135deg,
+      rgba(248, 250, 252, 0.88),
+      rgba(236, 254, 255, 0.76));
+}
+
+/* Faint healthcare cross pattern */
+.uh-app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  opacity: 0.32;
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M36 27v18M27 36h18' stroke='%230891b2' stroke-width='1.2' stroke-linecap='round' opacity='.16'/%3E%3C/svg%3E");
+  mask-image:
+    linear-gradient(to bottom,
+      rgba(0, 0, 0, 0.8),
+      transparent 90%);
+}
+
+/* Soft floating background light */
+.uh-app-shell::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  width: 34rem;
+  height: 34rem;
+  right: -12rem;
+  top: 10rem;
+  border-radius: 999px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle,
+      rgba(34, 211, 238, 0.18),
+      rgba(14, 165, 233, 0.07) 45%,
+      transparent 72%);
+  filter: blur(12px);
+  animation: unity-float-light 12s ease-in-out infinite;
+}
+
+/* Glass header */
+.uh-app-header {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow:
+    0 10px 34px rgba(15, 23, 42, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.82) inset;
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+}
+
+/* Navigation strip */
+.uh-app-nav {
+  background:
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.78),
+      rgba(236, 254, 255, 0.76),
+      rgba(255, 255, 255, 0.78));
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+/* Main screen surface */
+.uh-main-content {
+  position: relative;
+  animation: unity-page-enter 420ms ease-out both;
+}
+
+.uh-main-panel {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg,
+      rgba(255, 255, 255, 0.94),
+      rgba(248, 250, 252, 0.88));
+  border-color: var(--unity-border);
+  box-shadow: var(--unity-shadow);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.uh-main-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg,
+      transparent,
+      #06b6d4,
+      #0ea5e9,
+      #14b8a6,
+      transparent);
+  opacity: 0.8;
+}
+
+/* Shared application cards */
+.card {
+  background:
+    linear-gradient(145deg,
+      rgba(255, 255, 255, 0.96),
+      rgba(248, 250, 252, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.055),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.card:hover {
+  border-color: rgba(6, 182, 212, 0.32);
+  box-shadow:
+    0 17px 42px rgba(15, 23, 42, 0.09),
+    0 4px 12px rgba(8, 145, 178, 0.07);
+}
+
+/* Buttons retain their existing colours */
+button {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.025);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.11);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.985);
+  box-shadow: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Modern form controls */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea,
+.uh-input {
+  border-color: rgba(148, 163, 184, 0.52);
+  background-color: rgba(255, 255, 255, 0.9);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus,
+.uh-input:focus {
+  border-color: #0891b2;
+  background-color: #ffffff;
+  box-shadow:
+    0 0 0 3px rgba(6, 182, 212, 0.14),
+    0 5px 16px rgba(8, 145, 178, 0.06);
+  outline: none;
+}
+
+/* Tables */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+tbody tr {
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+tbody tr:hover {
+  background-color: rgba(236, 254, 255, 0.52);
+}
+
+/* Navigation pills and rounded action links */
+nav a,
+header a {
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+/* Visible keyboard focus */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(6, 182, 212, 0.35);
+  outline-offset: 2px;
+}
+
+/* Scrollbar refinement */
+* {
+  scrollbar-width: thin;
+  scrollbar-color:
+    rgba(8, 145, 178, 0.42) rgba(226, 232, 240, 0.55);
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(226, 232, 240, 0.55);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(180deg,
+      rgba(6, 182, 212, 0.72),
+      rgba(14, 116, 144, 0.72));
+  border: 2px solid rgba(241, 245, 249, 0.8);
+  border-radius: 999px;
+}
+
+/* Entrance and background animation */
+@keyframes unity-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes unity-float-light {
+
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(-3rem, 2rem, 0) scale(1.08);
+  }
+}
+
+/* Mobile refinements */
+@media (max-width: 640px) {
+  .uh-main-panel {
+    border-radius: 1rem;
+    box-shadow:
+      0 12px 30px rgba(15, 23, 42, 0.07);
+  }
+
+  .uh-app-shell::after {
+    width: 20rem;
+    height: 20rem;
+    right: -11rem;
+    top: 16rem;
+  }
+
+  button:not(:disabled):hover {
+    transform: none;
+  }
+}
+
+/* Accessibility: stop animation where requested */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================
+   ADMIN SHIFTS — CLEAR TRANSACTION ROWS
+   ========================================================== */
+
+.uh-admin-shifts-table {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+/* Each transaction becomes a clearly defined row */
+.uh-admin-shifts-table tbody>tr>td {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  background: rgba(255, 255, 255, 0.94);
+  border-top: 1px solid rgba(148, 163, 184, 0.38);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.38);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+/* Rounded left edge */
+.uh-admin-shifts-table tbody>tr>td:first-child {
+  border-left: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 12px 0 0 12px;
+  box-shadow: inset 3px 0 0 transparent;
+}
+
+/* Rounded right edge */
+.uh-admin-shifts-table tbody>tr>td:last-child {
+  border-right: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 0 12px 12px 0;
+}
+
+/* Gentle alternating row shade */
+.uh-admin-shifts-table tbody>tr:nth-child(even)>td {
+  background: rgba(240, 249, 255, 0.9);
+}
+
+/* Clear hover indication */
+.uh-admin-shifts-table tbody>tr:hover>td {
+  background: rgba(207, 250, 254, 0.72);
+  border-color: rgba(6, 182, 212, 0.48);
+}
+
+/* Cyan marker on the transaction being viewed */
+.uh-admin-shifts-table tbody>tr:hover>td:first-child {
+  box-shadow: inset 3px 0 0 #06b6d4;
+}
+
+/* Keep the table heading visually separate */
+.uh-admin-shifts-table thead th {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  background: rgba(241, 245, 249, 0.96);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.38);
+}
+
+/* Slightly tighter row spacing on phones */
+@media (max-width: 640px) {
+  .uh-admin-shifts-table {
+    border-spacing: 0 6px;
+  }
+
+  .uh-admin-shifts-table tbody>tr>td {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+}
+
+/* ==========================================================
+   CLIENT TABLES — CLEAR TRANSACTION ROWS
+   ========================================================== */
+
+.uh-client-data-table {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.uh-client-data-table tbody>.uh-client-data-row>td {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(148, 163, 184, 0.4);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.uh-client-data-table tbody>.uh-client-data-row>td:first-child {
+  border-left: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 12px 0 0 12px;
+  box-shadow: inset 3px 0 0 transparent;
+}
+
+.uh-client-data-table tbody>.uh-client-data-row>td:last-child {
+  border-right: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0 12px 12px 0;
+}
+
+.uh-client-data-table tbody>.uh-client-data-row:nth-child(even)>td {
+  background: rgba(240, 249, 255, 0.92);
+}
+
+.uh-client-data-table tbody>.uh-client-data-row:hover>td {
+  background: rgba(207, 250, 254, 0.74);
+  border-color: rgba(6, 182, 212, 0.52);
+}
+
+.uh-client-data-table tbody>.uh-client-data-row:hover>td:first-child {
+  box-shadow: inset 3px 0 0 #06b6d4;
+}
+
+.uh-client-data-table thead th {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  background: rgba(241, 245, 249, 0.98);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.42);
+}
+
+@media (max-width: 640px) {
+  .uh-client-data-table {
+    border-spacing: 0 6px;
+  }
+
+  .uh-client-data-table tbody>.uh-client-data-row>td {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
 }

@@ -1,48 +1,141 @@
 // src/main.jsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import App from "./App.jsx";
+
 import ClientRegister from "./components/ClientRegister.jsx";
+import StaffRegister from "./components/StaffRegister.jsx";
 import StaffOnboarding from "./components/StaffOnboarding.jsx";
+import ClientOnboarding from "./components/ClientOnboarding.jsx";
+import VerifyEmail from "./components/VerifyEmail.jsx";
+
+// ✅ Admin route
+import AdminStaffApplications from "./components/AdminStaffApplications.jsx";
+
 import "./index.css";
 
-// Simple verify screen – you can customise later
-function ClientVerify() {
-  return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3 text-center">
-        <h1 className="text-xl font-semibold text-slate-900">
-          Check your email
-        </h1>
-        <p className="text-sm text-slate-600">
-          We've sent a verification link to your email address.
-          Please verify your email, then Unity admin will review and activate
-          your client account.
-        </p>
-        <a
-          href="/"
-          className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-cyan-700 text-white text-sm font-semibold hover:bg-cyan-800"
-        >
-          Return to login
-        </a>
+// ✅ Firebase
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "./firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
+import {
+  canViewAdminTab,
+  resolveAdminAccess,
+} from "./utils/adminAccess";
+
+// ✅ Protected admin route wrapper
+function AdminRoute({ children }) {
+  const [checking, setChecking] = useState(true);
+  const [isAllowed, setIsAllowed] = useState(false);
+
+  useEffect(() => {
+    let unsub = null;
+
+    unsub = onAuthStateChanged(auth, async (user) => {
+      try {
+        if (!user) {
+          setIsAllowed(false);
+          setChecking(false);
+          return;
+        }
+
+        /*
+         * Protected Super Admins resolve without requiring
+         * a Firestore profile document.
+         */
+        const protectedAccess =
+          resolveAdminAccess(
+            user,
+            null
+          );
+
+        if (protectedAccess.isSuperAdmin) {
+          setIsAllowed(
+            canViewAdminTab(
+              protectedAccess,
+              "admin-staff-applications"
+            )
+          );
+
+          setChecking(false);
+          return;
+        }
+
+        const uref =
+          doc(db, "users", user.uid);
+
+        const usnap =
+          await getDoc(uref);
+
+        const profile =
+          usnap.exists()
+            ? usnap.data()
+            : null;
+
+        const adminAccess =
+          resolveAdminAccess(
+            user,
+            profile
+          );
+
+        setIsAllowed(
+          canViewAdminTab(
+            adminAccess,
+            "admin-staff-applications"
+          )
+        );
+
+        setChecking(false);
+      } catch (err) {
+        console.error("AdminRoute check failed:", err);
+        setIsAllowed(false);
+        setChecking(false);
+      }
+    });
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, []);
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
+        <div className="text-sm text-slate-600">Checking access…</div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (!isAllowed) {
+    // redirect to App (login / dashboard gate)
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
 }
 
 function Root() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* ⭐ PUBLIC STAFF RECRUITMENT FORM */}
+        <Route path="/client/register" element={<ClientRegister />} />
+        <Route path="/staff/register" element={<StaffRegister />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+
         <Route path="/staff/apply" element={<StaffOnboarding />} />
+        <Route path="/client/onboarding" element={<ClientOnboarding />} />
 
-        {/* ⭐ PUBLIC CLIENT ONBOARDING ROUTES */}
-        <Route path="/client/onboarding" element={<ClientRegister />} />
-        <Route path="/client-verify" element={<ClientVerify />} />
+        {/* ✅ PROTECTED ADMIN PAGE */}
+        <Route
+          path="/admin/staff-applications"
+          element={
+            <AdminRoute>
+              <AdminStaffApplications />
+            </AdminRoute>
+          }
+        />
 
-        {/* ⭐ EVERYTHING ELSE: LOGIN + DASHBOARD APP */}
         <Route path="/*" element={<App />} />
       </Routes>
     </BrowserRouter>
