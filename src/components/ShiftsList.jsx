@@ -548,7 +548,7 @@ export default function ShiftsList({ currentUser }) {
     setError("");
 
     try {
-      const requestShiftBooking = httpsCallable(functions, "requestShiftBooking");
+      const requestShiftBooking = httpsCallable(functions, "requestShiftBookingV2");
 
       // ✅ keep payload minimal (prevents breaking strict Cloud Function validation)
       const res = await requestShiftBooking({ shiftId: shift.id });

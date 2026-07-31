@@ -726,6 +726,57 @@ service cloud.firestore {
         );
       }
 
+      function isLegacyBookingOwner() {
+        return isSignedIn() && (
+          (
+            "staffBookedBy" in resource.data &&
+            resource.data.staffBookedBy ==
+              request.auth.uid
+          ) ||
+          (
+            "staffBooking" in resource.data &&
+            resource.data.staffBooking is map &&
+            (
+              (
+                "staffId" in resource.data.staffBooking &&
+                resource.data.staffBooking.staffId ==
+                  request.auth.uid
+              ) ||
+              (
+                "uid" in resource.data.staffBooking &&
+                resource.data.staffBooking.uid ==
+                  request.auth.uid
+              )
+            )
+          ) ||
+          (
+            request.auth.token.email is string &&
+            (
+              (
+                "bookedStaffEmail" in resource.data &&
+                resource.data.bookedStaffEmail is string &&
+                resource.data.bookedStaffEmail ==
+                  request.auth.token.email
+              ) ||
+              (
+                "requestedStaffEmail" in resource.data &&
+                resource.data.requestedStaffEmail is string &&
+                resource.data.requestedStaffEmail ==
+                  request.auth.token.email
+              ) ||
+              (
+                "staffBooking" in resource.data &&
+                resource.data.staffBooking is map &&
+                "email" in resource.data.staffBooking &&
+                resource.data.staffBooking.email is string &&
+                resource.data.staffBooking.email ==
+                  request.auth.token.email
+              )
+            )
+          )
+        );
+      }
+
       function isClientForShift() {
         return isSignedIn() && (
           resource.data.clientId == request.auth.uid ||
@@ -747,6 +798,7 @@ service cloud.firestore {
             isClientForShift() ||
             isCreator() ||
             isBookedOrRequestedByUser() ||
+            isLegacyBookingOwner() ||
 
             (staffIsActiveOnboarded() && resource.data.status == "open") ||
 
@@ -858,10 +910,50 @@ service cloud.firestore {
           );
       }
 
-      allow read: if isAdmin() || isStaffReadableTimesheet() || isClientApprovedTimesheet();
+      allow read: if
+        isAdmin() ||
+        ruleAdminCanAccessClient(
+          "timesheets",
+          "view",
+          resource.data.clientId
+        ) ||
+        isStaffReadableTimesheet() ||
+        isClientApprovedTimesheet();
 
       allow create: if isAdmin();
-      allow update, delete: if isAdmin();
+
+      allow update: if
+        isAdmin() ||
+        (
+          ruleAdminCanAccessClient(
+            "timesheets",
+            "approve",
+            resource.data.clientId
+          )
+          && request.resource.data.status is string
+          && request.resource.data.status in
+            ["submitted", "approved", "rejected"]
+          && request.resource.data
+            .diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "breakMinutesAdmin",
+              "hoursWorkedAdmin",
+              "finalHours",
+              "adminNote",
+              "status",
+              "updatedAt",
+              "updatedByEmail",
+              "updatedByName",
+              "updatedBy",
+              "approvedAt",
+              "approvedByEmail",
+              "approvedByName",
+              "approvedBy"
+            ])
+        );
+
+      allow delete: if isAdmin();
     }
 
     // ---------- Payroll ----------

@@ -2199,13 +2199,67 @@ const {
   resolveTimesheetClientOwnership,
 } = require("./timesheetOwnership");
 
-exports.submitTimesheetV2 = onCall({ region: REGION }, async (request) => {
+  function submitTimesheetShiftBelongsToStaff(
+    shift,
+    uid,
+    email
+  ) {
+    const normalizedUid =
+      safeString(uid);
+
+    const normalizedEmail =
+      safeString(email).toLowerCase();
+
+    const bookingStaffIds = [
+      shift?.bookedBy,
+      shift?.bookedStaffId,
+      shift?.requestedStaffId,
+      shift?.staffBookedBy,
+      shift?.staffBooking?.staffId,
+      shift?.staffBooking?.uid,
+    ]
+      .map((value) => safeString(value))
+      .filter(Boolean);
+
+    const bookingStaffEmails = [
+      shift?.bookedStaffEmail,
+      shift?.requestedStaffEmail,
+      shift?.staffBooking?.email,
+    ]
+      .map((value) =>
+        safeString(value).toLowerCase()
+      )
+      .filter(Boolean);
+
+    return (
+      (
+        normalizedUid &&
+        bookingStaffIds.includes(
+          normalizedUid
+        )
+      ) ||
+      (
+        normalizedEmail &&
+        bookingStaffEmails.includes(
+          normalizedEmail
+        )
+      )
+    );
+  }
+
+  exports.submitTimesheetV2 = onCall({ region: REGION }, async (request) => {
   try {
     if (!request.auth?.uid) {
       throw new HttpsError("unauthenticated", "Please sign in.");
     }
 
     const uid = request.auth.uid;
+
+    const email =
+      safeString(
+        request.auth.token?.email
+      ).toLowerCase();
+
     const shiftIdInput = safeString(request.data?.shiftId);
     if (!shiftIdInput)
       throw new HttpsError("invalid-argument", "Missing shiftId.");
@@ -2278,8 +2332,13 @@ exports.submitTimesheetV2 = onCall({ region: REGION }, async (request) => {
         );
       }
 
-      const bookedBy = shift.bookedBy || shift.bookedStaffId || null;
-      if (bookedBy !== uid) {
+      if (
+        !submitTimesheetShiftBelongsToStaff(
+          shift,
+          uid,
+          email
+        )
+      ) {
         throw new HttpsError(
           "permission-denied",
           "This shift is not assigned to you."

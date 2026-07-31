@@ -161,17 +161,17 @@ function App() {
       const adminTabs = [
         {
           id: "admin-clients",
-          label: "Admin ? Clients",
+          label: "Admin - Clients",
           group: "Admin",
         },
         {
           id: "admin-shifts",
-          label: "Admin ? Shifts",
+          label: "Admin - Shifts",
           group: "Admin",
         },
         {
           id: "admin-users",
-          label: "Admin ? Users",
+          label: "Admin - Users",
           group: "Admin",
         },
         {
@@ -181,7 +181,7 @@ function App() {
         },
         {
           id: "admin-timesheets",
-          label: "Admin ? Timesheets",
+          label: "Admin - Timesheets",
           group: "Admin",
         },
         {
@@ -502,7 +502,10 @@ function App() {
               <Payroll currentUser={user} />
             )}
             {activeTab === "admin-timesheets" && canViewAdminTab(adminAccess, "admin-timesheets") && (
-              <AdminTimesheets currentUser={user} />
+              <AdminTimesheets
+                  currentUser={user}
+                  adminAccess={adminAccess}
+                />
             )}
             {activeTab === "admin-invoices" && canViewAdminTab(adminAccess, "admin-invoices") && (
               <ClientInvoices currentUser={user} />

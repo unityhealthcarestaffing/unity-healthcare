@@ -1,14 +1,16 @@
 // src/components/AdminTimesheets.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
   getDocs,
   query,
+  where,
   orderBy,
   setDoc,
   Timestamp,
 } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "../firebaseConfig";
 
 // Same badge styling as staff Timesheets
@@ -25,7 +27,119 @@ function statusBadgeClasses(status) {
   }
 }
 
-export default function AdminTimesheets() {
+function safeStr(v) {
+  const s = String(v ?? "").trim();
+  return s ? s : "";
+}
+
+function toGBDate(tsLike) {
+  try {
+    const d =
+      tsLike?.toDate && typeof tsLike.toDate === "function"
+        ? tsLike.toDate()
+        : tsLike instanceof Date
+        ? tsLike
+        : null;
+    return d ? d.toLocaleString("en-GB") : "";
+  } catch {
+    return "";
+  }
+}
+
+// ✅ Safe URL check (prevents rendering weird values as links)
+function isProbablyUrl(v) {
+  const s = safeStr(v);
+  return /^https?:\/\//i.test(s);
+}
+
+// ✅ Robust reader for uploaded-doc fields (supports different schemas)
+function readUploadedEvidence(ts) {
+  const paperUrl =
+    ts?.paperFileUrl ||
+    ts?.paperTimesheetUrl ||
+    ts?.paperUrl ||
+    ts?.uploadedFileUrl ||
+    "";
+
+  const sigUrl =
+    ts?.clientSignatureUrl ||
+    ts?.signatureUrl ||
+    ts?.clientSigUrl ||
+    "";
+
+  const paperName =
+    ts?.paperFileName ||
+    ts?.paperTimesheetName ||
+    ts?.uploadedFileName ||
+    "";
+
+  const sigName =
+    ts?.clientSignatureFileName ||
+    ts?.signatureFileName ||
+    "";
+
+  // if you also store storage paths, keep them visible for debugging
+  const paperPath =
+    ts?.paperStoragePath ||
+    ts?.paperFilePath ||
+    ts?.uploadedFilePath ||
+    "";
+
+  const sigPath =
+    ts?.clientSignatureStoragePath ||
+    ts?.signatureStoragePath ||
+    "";
+
+  return {
+    paperUrl: safeStr(paperUrl),
+    sigUrl: safeStr(sigUrl),
+    paperName: safeStr(paperName),
+    sigName: safeStr(sigName),
+    paperPath: safeStr(paperPath),
+    sigPath: safeStr(sigPath),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* ✅ Shift ID helpers (non-breaking, supports your schema variations) */
+/* ------------------------------------------------------------------ */
+
+// Prefer explicit public shift id stored on timesheet, then try shift doc's shiftId/publicId,
+// and finally fall back to internal shiftId (doc id) shortened.
+function getShiftIdDisplay(ts) {
+  const publicId =
+    safeStr(ts?.shiftPublicId) ||
+    safeStr(ts?.shiftIdPublic) ||
+    safeStr(ts?.shiftIDPublic) ||
+    safeStr(ts?.publicShiftId);
+
+  if (publicId) return publicId;
+
+  // Sometimes timesheets may store the shift's generated ID in "shiftId" (SH-000001) by older schema
+  const maybePublicInShiftId = safeStr(ts?.shiftId);
+  if (/^SH-\d{6}$/i.test(maybePublicInShiftId)) return maybePublicInShiftId.toUpperCase();
+
+  // Otherwise shiftId is your internal Firestore doc id
+  const internal = safeStr(ts?.shiftId);
+  if (!internal) return "—";
+  return internal.slice(0, 8).toUpperCase();
+}
+
+// Best-effort client label for sorting and display.
+// Uses explicit clientName on timesheet if you later add it; otherwise uses location as fallback.
+// (Does NOT change your backend / rules. Pure UI helper.)
+function getClientSortKey(ts) {
+  const name =
+    safeStr(ts?.clientName) ||
+    safeStr(ts?.clientOrganisation) ||
+    safeStr(ts?.clientOrgName) ||
+    safeStr(ts?.organisation) ||
+    safeStr(ts?.shiftLocation) ||
+    "";
+  return name.toLowerCase();
+}
+
+export default function AdminTimesheets({ currentUser, adminAccess }) {
   const [timesheets, setTimesheets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -39,25 +153,141 @@ export default function AdminTimesheets() {
     adminNote: "",
   });
 
-  // Load all timesheets ordered by submittedAt desc
+  // ✅ sort controls (client requested)
+  const [sortBy, setSortBy] = useState("submittedAt"); // submittedAt | shiftDate | status | location | staff | client | shiftId
+  const [sortDirection, setSortDirection] = useState("desc"); // asc | desc
+
+  // ---- approver identity (props OR firebase auth fallback)
+  const approver = useMemo(() => {
+    const authUser = getAuth()?.currentUser || null;
+    const u = currentUser || authUser;
+
+    const email = safeStr(u?.email);
+    const name =
+      safeStr(u?.displayName) ||
+      safeStr(u?.name) ||
+      safeStr(u?.fullName) ||
+      (email ? email.split("@")[0] : "");
+
+    return {
+      email: email || "",
+      name: name || "",
+      label: name || email || "Unity Admin",
+    };
+  }, [currentUser]);
+
+  const timesheetViewScope = adminAccess?.isSuperAdmin
+    ? "all"
+    : safeStr(
+        adminAccess?.permissions?.timesheets?.view
+      ).toLowerCase() || "none";
+
+  const timesheetApproveScope = adminAccess?.isSuperAdmin
+    ? "all"
+    : safeStr(
+        adminAccess?.permissions?.timesheets?.approve
+      ).toLowerCase() || "none";
+
+  const assignedClientIds = useMemo(() => {
+    const values = Array.isArray(
+      adminAccess?.assignedClientIds
+    )
+      ? adminAccess.assignedClientIds
+      : [];
+
+    return [
+      ...new Set(
+        values
+          .map((value) => safeStr(value))
+          .filter(Boolean)
+      ),
+    ];
+  }, [adminAccess]);
+
+  const assignedClientKey =
+    assignedClientIds.join("|");
+
+  const canApproveTimesheet = (timesheet) => {
+    if (timesheetApproveScope === "all") {
+      return true;
+    }
+
+    if (timesheetApproveScope !== "assigned") {
+      return false;
+    }
+
+    return assignedClientIds.includes(
+      safeStr(timesheet?.clientId)
+    );
+  };
+
+  // Load only timesheets permitted by the administrator scope.
   const loadTimesheets = async () => {
     setLoading(true);
     setError("");
 
     try {
       const tsRef = collection(db, "timesheets");
-      const qTs = query(tsRef, orderBy("submittedAt", "desc"));
-      const snap = await getDocs(qTs);
+      let rows = [];
 
-      const rows = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
+      if (timesheetViewScope === "all") {
+        const snapshot = await getDocs(
+          query(
+            tsRef,
+            orderBy("submittedAt", "desc")
+          )
+        );
+
+        rows = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }));
+      } else if (timesheetViewScope === "assigned") {
+        if (assignedClientIds.length === 0) {
+          setTimesheets([]);
+          return;
+        }
+
+        const snapshots = await Promise.all(
+          assignedClientIds.map((clientId) =>
+            getDocs(
+              query(
+                tsRef,
+                where("clientId", "==", clientId)
+              )
+            )
+          )
+        );
+
+        const uniqueRows = new Map();
+
+        snapshots.forEach((snapshot) => {
+          snapshot.docs.forEach((item) => {
+            uniqueRows.set(item.id, {
+              id: item.id,
+              ...item.data(),
+            });
+          });
+        });
+
+        rows = [...uniqueRows.values()];
+      } else {
+        setTimesheets([]);
+        setError(
+          "You do not have permission to view admin timesheets."
+        );
+        return;
+      }
 
       setTimesheets(rows);
     } catch (err) {
-      console.error("Error loading timesheets for admin:", err);
-      setError("Could not load timesheets. Please try again.");
+      console.error(
+        "Error loading timesheets for admin:",
+        err
+      );
+      setError(
+        "Could not load timesheets. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -65,7 +295,7 @@ export default function AdminTimesheets() {
 
   useEffect(() => {
     loadTimesheets();
-  }, []);
+  }, [timesheetViewScope, assignedClientKey]);
 
   const openRow = (ts) => {
     setActiveId(ts.id);
@@ -89,6 +319,25 @@ export default function AdminTimesheets() {
   };
 
   const handleSave = async (e) => {
+    const permissionTarget =
+      timesheets.find(
+        (item) => item.id === activeId
+      ) || null;
+
+    if (!canApproveTimesheet(permissionTarget)) {
+      if (
+        e &&
+        typeof e.preventDefault === "function"
+      ) {
+        e.preventDefault();
+      }
+
+      alert(
+        "You do not have permission to update this timesheet."
+      );
+      return;
+    }
+
     e.preventDefault();
     if (!activeId) return;
 
@@ -114,7 +363,8 @@ export default function AdminTimesheets() {
       return;
     }
 
-    const status = form.status || "submitted";
+    const nextStatus = form.status || "submitted";
+    const prevStatus = String(ts.status || "submitted");
 
     // Final hours used by Payroll:
     // prefer admin override, then staff hours
@@ -125,26 +375,54 @@ export default function AdminTimesheets() {
         ? ts.hoursWorkedStaff
         : null;
 
+    // Detect approval transition
+    const becomesApproved = prevStatus !== "approved" && nextStatus === "approved";
+    const staysApproved = prevStatus === "approved" && nextStatus === "approved";
+    const leavingApproved = prevStatus === "approved" && nextStatus !== "approved";
+
     try {
       setSaving(true);
 
       const tsRef = doc(db, "timesheets", activeId);
-      await setDoc(
-        tsRef,
-        {
-          breakMinutesAdmin:
-            breakMinutesAdmin != null ? breakMinutesAdmin : null,
-          hoursWorkedAdmin:
-            hoursWorkedAdmin != null ? hoursWorkedAdmin : null,
-          finalHours: finalHours != null ? finalHours : null,
 
-          adminNote: form.adminNote || null,
-          status,
-          updatedAt: Timestamp.now(),
-          approvedAt: status === "approved" ? Timestamp.now() : null,
-        },
-        { merge: true }
-      );
+      const payload = {
+        breakMinutesAdmin: breakMinutesAdmin != null ? breakMinutesAdmin : null,
+        hoursWorkedAdmin: hoursWorkedAdmin != null ? hoursWorkedAdmin : null,
+        finalHours: finalHours != null ? finalHours : null,
+
+        adminNote: form.adminNote || null,
+        status: nextStatus,
+
+        updatedAt: Timestamp.now(),
+
+        // helpful audit fields
+        updatedByEmail: approver.email || null,
+        updatedByName: approver.name || null,
+        updatedBy: approver.label || null,
+      };
+
+      // ✅ If approving now: write approver identity and approvedAt
+      if (becomesApproved) {
+        payload.approvedAt = Timestamp.now();
+        payload.approvedByEmail = approver.email || null;
+        payload.approvedByName = approver.name || null;
+        payload.approvedBy = approver.label || "Unity Admin";
+      }
+
+      // ✅ If already approved and still approved: DO NOT overwrite approver
+      if (staysApproved) {
+        // keep existing approvedAt/by fields untouched (no-op)
+      }
+
+      // ✅ If moving away from approved: clear approval fields
+      if (leavingApproved) {
+        payload.approvedAt = null;
+        payload.approvedByEmail = null;
+        payload.approvedByName = null;
+        payload.approvedBy = null;
+      }
+
+      await setDoc(tsRef, payload, { merge: true });
 
       alert("Timesheet updated.");
       closeRow();
@@ -156,6 +434,58 @@ export default function AdminTimesheets() {
     }
   };
 
+  // ✅ sorted view (client requested "add sort by")
+  const sortedTimesheets = useMemo(() => {
+    const list = [...timesheets];
+
+    const getTime = (v) => {
+      const d =
+        v?.toDate && typeof v.toDate === "function"
+          ? v.toDate()
+          : v instanceof Date
+          ? v
+          : null;
+      return d ? d.getTime() : 0;
+    };
+
+    const dir = sortDirection === "asc" ? 1 : -1;
+
+    list.sort((a, b) => {
+      let av;
+      let bv;
+
+      if (sortBy === "shiftDate") {
+        av = getTime(a.shiftDate);
+        bv = getTime(b.shiftDate);
+      } else if (sortBy === "status") {
+        av = safeStr(a.status).toLowerCase();
+        bv = safeStr(b.status).toLowerCase();
+      } else if (sortBy === "location") {
+        av = safeStr(a.shiftLocation).toLowerCase();
+        bv = safeStr(b.shiftLocation).toLowerCase();
+      } else if (sortBy === "staff") {
+        av = safeStr(a.staffSignedName || a.staffEmail || a.staffId).toLowerCase();
+        bv = safeStr(b.staffSignedName || b.staffEmail || b.staffId).toLowerCase();
+      } else if (sortBy === "client") {
+        av = getClientSortKey(a);
+        bv = getClientSortKey(b);
+      } else if (sortBy === "shiftId") {
+        av = safeStr(getShiftIdDisplay(a)).toLowerCase();
+        bv = safeStr(getShiftIdDisplay(b)).toLowerCase();
+      } else {
+        // submittedAt (default)
+        av = getTime(a.submittedAt);
+        bv = getTime(b.submittedAt);
+      }
+
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+
+    return list;
+  }, [timesheets, sortBy, sortDirection]);
+
   return (
     <div className="space-y-4">
       <div>
@@ -166,6 +496,39 @@ export default function AdminTimesheets() {
           Review submitted timesheets, adjust breaks/hours, and approve or
           reject. Approved timesheets feed into Payroll.
         </p>
+        <p className="text-[11px] text-slate-500 mt-1">
+          Signed in as:{" "}
+          <span className="font-semibold">{approver.label || "Admin"}</span>
+        </p>
+      </div>
+
+      {/* ✅ Sort row (added, does not remove anything) */}
+      <div className="card flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="text-xs text-slate-500">Sort</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="input !text-xs !py-1.5 !h-8 w-44"
+          >
+            <option value="submittedAt">Submitted date</option>
+            <option value="shiftDate">Shift date</option>
+            <option value="client">Client</option>
+            <option value="shiftId">Shift ID</option>
+            <option value="status">Status</option>
+            <option value="location">Location</option>
+            <option value="staff">Staff</option>
+          </select>
+
+          <select
+            value={sortDirection}
+            onChange={(e) => setSortDirection(e.target.value)}
+            className="input !text-xs !py-1.5 !h-8 w-36"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </div>
       </div>
 
       {error && (
@@ -176,28 +539,48 @@ export default function AdminTimesheets() {
 
       {loading ? (
         <div className="text-sm text-slate-600">Loading timesheets…</div>
-      ) : !timesheets.length ? (
-        <div className="text-sm text-slate-600">
-          No timesheets found yet.
-        </div>
+      ) : !sortedTimesheets.length ? (
+        <div className="text-sm text-slate-600">No timesheets found yet.</div>
       ) : (
         <div className="space-y-3">
-          {timesheets.map((ts) => {
+          {sortedTimesheets.map((ts) => {
             const dateLabel = ts.shiftDate?.toDate
-              ? ts.shiftDate.toDate().toLocaleDateString()
+              ? ts.shiftDate.toDate().toLocaleDateString("en-GB")
               : "";
+
             const isOpen = activeId === ts.id;
 
             const staffHours = ts.hoursWorkedStaff ?? null;
             const finalHours =
-              ts.finalHours ??
-              ts.hoursWorkedAdmin ??
-              ts.hoursWorkedStaff ??
-              null;
+              ts.finalHours ?? ts.hoursWorkedAdmin ?? ts.hoursWorkedStaff ?? null;
+
+            const approvedBy =
+              safeStr(ts.approvedByName) ||
+              safeStr(ts.approvedByEmail) ||
+              safeStr(ts.approvedBy) ||
+              "";
+
+            const approvedAt = ts.approvedAt ? toGBDate(ts.approvedAt) : "";
+
+            // ✅ Shift ID display
+            const shiftIdDisplay = getShiftIdDisplay(ts);
+
+            // ✅ "Client" display (best-effort, non-breaking)
+            const clientDisplay =
+              safeStr(ts.clientName) ||
+              safeStr(ts.clientOrganisation) ||
+              safeStr(ts.clientOrgName) ||
+              safeStr(ts.organisation) ||
+              ""; // if missing, we just don't show it
+
+            // ✅ Uploaded evidence links
+            const evidence = readUploadedEvidence(ts);
+            const paperLinkOk = isProbablyUrl(evidence.paperUrl);
+            const sigLinkOk = isProbablyUrl(evidence.sigUrl);
 
             return (
               <div
-                key={ts.id}
+                key={ts.id} // ✅ fixes key warning for this list
                 className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm space-y-2"
               >
                 {/* Header row */}
@@ -206,13 +589,31 @@ export default function AdminTimesheets() {
                     <p className="font-semibold text-slate-900">
                       {ts.shiftLocation || "No location"}
                     </p>
+
+                    {/* ✅ Shift ID + (optional) client label (added, non-breaking) */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] md:text-xs text-slate-600">
+                      <span>
+                        Shift ID:{" "}
+                        <span className="font-semibold text-slate-800">
+                          {shiftIdDisplay}
+                        </span>
+                      </span>
+                      {clientDisplay ? (
+                        <span>
+                          · Client:{" "}
+                          <span className="font-semibold text-slate-800">
+                            {clientDisplay}
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+
                     <p className="text-[11px] md:text-xs text-slate-600">
                       {dateLabel} · {ts.shiftStartTime} – {ts.shiftEndTime}
                     </p>
                     {ts.shiftRole && (
                       <p className="text-[11px] md:text-xs text-slate-600">
-                        Role:{" "}
-                        <span className="font-semibold">{ts.shiftRole}</span>
+                        Role: <span className="font-semibold">{ts.shiftRole}</span>
                       </p>
                     )}
                     <p className="text-[11px] md:text-xs text-slate-600">
@@ -221,18 +622,64 @@ export default function AdminTimesheets() {
                         {ts.staffSignedName || ts.staffEmail || ts.staffId}
                       </span>
                     </p>
+
                     <p className="text-[11px] md:text-xs text-slate-600">
                       Staff hours (calc):{" "}
                       <span className="font-semibold">
                         {staffHours != null ? `${staffHours} h` : "n/a"}
                       </span>
                     </p>
+
                     {finalHours != null && (
                       <p className="text-[11px] md:text-xs text-emerald-700">
                         Final hours for payroll:{" "}
-                        <span className="font-semibold">
-                          {finalHours} h
-                        </span>
+                        <span className="font-semibold">{finalHours} h</span>
+                      </p>
+                    )}
+
+                    {String(ts.status || "").toLowerCase() === "approved" && (
+                      <p className="text-[11px] md:text-xs text-slate-600">
+                        Approved by:{" "}
+                        <span className="font-semibold">{approvedBy || "—"}</span>
+                        {approvedAt ? (
+                          <>
+                            {" "}
+                            · <span className="text-slate-500">{approvedAt}</span>
+                          </>
+                        ) : null}
+                      </p>
+                    )}
+
+                    {/* ✅ Evidence row */}
+                    {paperLinkOk || sigLinkOk ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {paperLinkOk && (
+                          <a
+                            href={evidence.paperUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-cyan-700 hover:underline"
+                          >
+                            View uploaded timesheet
+                            {evidence.paperName ? ` (${evidence.paperName})` : ""}
+                          </a>
+                        )}
+                        {sigLinkOk && (
+                          <a
+                            href={evidence.sigUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-cyan-700 hover:underline"
+                          >
+                            View client signature
+                            {evidence.sigName ? ` (${evidence.sigName})` : ""}
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      // ✅ If no URLs found, show a hint (doesn't break anything)
+                      <p className="text-[11px] text-slate-500 pt-1">
+                        No uploaded documents found on this timesheet record.
                       </p>
                     )}
                   </div>
@@ -262,6 +709,56 @@ export default function AdminTimesheets() {
                     onSubmit={handleSave}
                     className="mt-2 border-t border-slate-200 pt-3 space-y-3 text-xs md:text-sm"
                   >
+                    {/* ✅ Evidence section inside the expanded view too */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-semibold text-slate-800 mb-1">
+                        Uploaded evidence
+                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        {paperLinkOk ? (
+                          <a
+                            href={evidence.paperUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-cyan-700 hover:underline"
+                          >
+                            View uploaded timesheet
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">
+                            No uploaded file URL found
+                          </span>
+                        )}
+
+                        {sigLinkOk ? (
+                          <a
+                            href={evidence.sigUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[11px] text-cyan-700 hover:underline"
+                          >
+                            View client signature
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">
+                            No signature URL found
+                          </span>
+                        )}
+                      </div>
+
+                      {(evidence.paperPath || evidence.sigPath) && (
+                        <div className="mt-2 text-[10px] text-slate-500 space-y-0.5">
+                          {evidence.paperPath && (
+                            <div>File path: {evidence.paperPath}</div>
+                          )}
+                          {evidence.sigPath && (
+                            <div>Signature path: {evidence.sigPath}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="grid gap-2 md:grid-cols-3">
                       <div>
                         <label className="block mb-1 font-semibold">
@@ -273,10 +770,7 @@ export default function AdminTimesheets() {
                           className="uh-input"
                           value={form.breakMinutesAdmin}
                           onChange={(e) =>
-                            handleChange(
-                              "breakMinutesAdmin",
-                              e.target.value
-                            )
+                            handleChange("breakMinutesAdmin", e.target.value)
                           }
                           placeholder="Leave blank to use staff break"
                         />
@@ -310,15 +804,11 @@ export default function AdminTimesheets() {
                       </div>
 
                       <div>
-                        <label className="block mb-1 font-semibold">
-                          Status
-                        </label>
+                        <label className="block mb-1 font-semibold">Status</label>
                         <select
                           className="uh-input"
                           value={form.status}
-                          onChange={(e) =>
-                            handleChange("status", e.target.value)
-                          }
+                          onChange={(e) => handleChange("status", e.target.value)}
                         >
                           <option value="submitted">Submitted</option>
                           <option value="approved">Approved</option>
@@ -339,9 +829,7 @@ export default function AdminTimesheets() {
                         className="uh-input"
                         rows={2}
                         value={form.adminNote}
-                        onChange={(e) =>
-                          handleChange("adminNote", e.target.value)
-                        }
+                        onChange={(e) => handleChange("adminNote", e.target.value)}
                         placeholder="Reason for adjustment / rejection etc."
                       />
                     </div>
