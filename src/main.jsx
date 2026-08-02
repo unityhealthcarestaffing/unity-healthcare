@@ -123,8 +123,22 @@ function Root() {
         <Route path="/staff/register" element={<StaffRegister />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
 
-        <Route path="/staff/apply" element={<StaffOnboarding />} />
-        <Route path="/client/onboarding" element={<ClientOnboarding />} />
+        <Route
+          path="/staff/apply"
+          element={
+            <StaffApplicationRoute>
+              <StaffOnboarding />
+            </StaffApplicationRoute>
+          }
+        />
+        <Route
+          path="/client/onboarding"
+          element={
+            <ClientOnboardingRoute>
+              <ClientOnboarding />
+            </ClientOnboardingRoute>
+          }
+        />
 
         {/* ✅ PROTECTED ADMIN PAGE */}
         <Route
@@ -142,4 +156,116 @@ function Root() {
   );
 }
 
+
+// Unity staff application authentication gate
+function StaffApplicationRoute({ children }) {
+  const [checkingStaffAccess, setCheckingStaffAccess] = useState(true);
+  const [staffApplicant, setStaffApplicant] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (firebaseUser) => {
+        if (firebaseUser) {
+          try {
+            await firebaseUser.reload();
+          } catch (error) {
+            console.warn(
+              "Could not refresh staff applicant authentication:",
+              error
+            );
+          }
+        }
+
+        setStaffApplicant(auth.currentUser || firebaseUser || null);
+        setCheckingStaffAccess(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  if (checkingStaffAccess) {
+    return (
+      <div className="min-h-dvh bg-slate-100 flex items-center justify-center">
+        <p className="text-sm text-slate-600">
+          Checking your account…
+        </p>
+      </div>
+    );
+  }
+
+  if (!staffApplicant) {
+    return <Navigate to="/staff/register" replace />;
+  }
+
+  if (!staffApplicant.emailVerified) {
+    const nextPath = encodeURIComponent("/staff/apply");
+
+    return (
+      <Navigate
+        to={`/verify-email?next=${nextPath}`}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
+// Unity client onboarding authentication gate
+function ClientOnboardingRoute({ children }) {
+  const [checkingClientAccess, setCheckingClientAccess] = useState(true);
+  const [clientApplicant, setClientApplicant] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (firebaseUser) => {
+        if (firebaseUser) {
+          try {
+            await firebaseUser.reload();
+          } catch (error) {
+            console.warn(
+              "Could not refresh client authentication:",
+              error
+            );
+          }
+        }
+
+        setClientApplicant(auth.currentUser || firebaseUser || null);
+        setCheckingClientAccess(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  if (checkingClientAccess) {
+    return (
+      <div className="min-h-dvh bg-slate-100 flex items-center justify-center">
+        <p className="text-sm text-slate-600">
+          Checking your account…
+        </p>
+      </div>
+    );
+  }
+
+  if (!clientApplicant) {
+    return <Navigate to="/client/register" replace />;
+  }
+
+  if (!clientApplicant.emailVerified) {
+    const nextPath = encodeURIComponent("/client/onboarding");
+
+    return (
+      <Navigate
+        to={`/verify-email?next=${nextPath}`}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
