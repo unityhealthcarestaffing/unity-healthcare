@@ -24,3 +24,15 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Unity Healthcare Android release signing
+# Private signing material — never commit these files
+keys/
+*.jks
+*.keystore
+*.p12
+*.pfx
+android/key.properties
+android/keystore.properties
+android/app/key.properties
+android/app/keystore.properties
