@@ -26,7 +26,7 @@ const SERVICES_NEEDED = [
 ];
 
 const BILLING_OPTIONS = ["Weekly", "Fortnightly", "Monthly", "Other"];
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 
 /**
  * Deterministic 4-digit code from UID.
@@ -45,6 +45,7 @@ export default function ClientOnboarding({ currentUser }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [clientDeclaration, setClientDeclaration] = useState(false);
 
   const [files, setFiles] = useState({
     cqc: null,
@@ -88,7 +89,7 @@ export default function ClientOnboarding({ currentUser }) {
     notes: "",
 
     // ✅ NEW: proposed rates per role (must be filled for selected services)
-    proposedRates: {}, // { [serviceName]: "23" }
+    proposedRates: {}, // { [serviceName]: { day: "", night: "", weekend: "" } }
   });
 
   const progress = useMemo(() => (step / TOTAL_STEPS) * 100, [step]);
@@ -117,12 +118,20 @@ export default function ClientOnboarding({ currentUser }) {
     });
   };
 
-  const handleProposedRateChange = (service, value) => {
-    // Keep as string but numeric-ish
+  const handleProposedRateChange = (service, rateType, value) => {
     const cleaned = String(value ?? "").replace(/[^\d.]/g, "");
+
     setForm((p) => ({
       ...p,
-      proposedRates: { ...(p.proposedRates || {}), [service]: cleaned },
+      proposedRates: {
+        ...(p.proposedRates || {}),
+        [service]: {
+          day: p.proposedRates?.[service]?.day || "",
+          night: p.proposedRates?.[service]?.night || "",
+          weekend: p.proposedRates?.[service]?.weekend || "",
+          [rateType]: cleaned,
+        },
+      },
     }));
   };
 
@@ -142,38 +151,68 @@ export default function ClientOnboarding({ currentUser }) {
     return await getDownloadURL(storageRef);
   };
 
-  const validateStep = () => {
-    if (step === 1) {
-      if (!form.organisationName?.trim()) return "Please enter organisation name.";
+  const validateStep = (whichStep = step) => {
+    if (whichStep === 1) {
+      if (!form.organisationName?.trim())
+        return "Please enter the company or organisation name.";
+      if (!form.companyNumber?.trim())
+        return "Please enter the company registration number.";
       if (!form.businessType) return "Please select business type.";
       if (!form.contactName?.trim() || !form.contactPhone?.trim())
         return "Please provide contact name and phone.";
       return "";
     }
-    if (step === 2) {
+
+    if (whichStep === 2) {
       if (!form.addressLine1?.trim() || !form.cityTown?.trim() || !form.postcode?.trim())
         return "Please complete address line 1, city/town and postcode.";
       return "";
     }
-    if (step === 3) {
-      if (!form.invoiceEmail?.trim()) return "Please provide an invoice email address.";
-      if (!form.servicesNeeded.length) return "Please select at least one service needed.";
 
-      // ✅ NEW: proposed rate per selected service is mandatory
-      const rates = form.proposedRates || {};
-      const missing = form.servicesNeeded.filter((s) => {
-        const v = String(rates[s] ?? "").trim();
-        if (!v) return true;
-        const n = Number(v);
-        return !Number.isFinite(n) || n <= 0;
-      });
+    if (whichStep === 3) {
+      if (!form.invoiceEmail?.trim())
+        return "Please provide an invoice email address.";
+
+      if (!form.servicesNeeded.length)
+        return "Please select at least one service needed.";
+
+      const missing = [];
+
+      for (const service of form.servicesNeeded) {
+        const rates = form.proposedRates?.[service] || {};
+
+        for (const rateType of ["day", "night", "weekend"]) {
+          const raw = String(rates[rateType] ?? "").trim();
+          const value = Number(raw);
+
+          if (!raw || !Number.isFinite(value) || value <= 0) {
+            missing.push(`${service} — ${rateType} rate`);
+          }
+        }
+      }
 
       if (missing.length) {
-        return `Please enter your proposed hourly rate for: ${missing.join(", ")}.`;
+        return `Please enter valid positive rates for: ${missing.join(", ")}.`;
       }
 
       return "";
     }
+
+    if (whichStep === 4) {
+      if (!clientDeclaration) {
+        return "Please confirm that the client registration information is complete and correct.";
+      }
+    }
+
+    return "";
+  };
+
+  const validateBeforeSubmit = () => {
+    for (let currentStep = 1; currentStep <= TOTAL_STEPS; currentStep += 1) {
+      const validationError = validateStep(currentStep);
+      if (validationError) return validationError;
+    }
+
     return "";
   };
 
@@ -196,7 +235,7 @@ export default function ClientOnboarding({ currentUser }) {
       return;
     }
 
-    const stepError = validateStep();
+    const stepError = validateBeforeSubmit();
     if (stepError) {
       setError(stepError);
       return;
@@ -261,11 +300,22 @@ export default function ClientOnboarding({ currentUser }) {
             landmark: "",
           };
 
-      // ✅ NEW: store proposed rates only for selected services
-      const proposedRatesClean = {};
-      for (const s of form.servicesNeeded) {
-        const raw = String(form.proposedRates?.[s] ?? "").trim();
-        proposedRatesClean[s] = raw;
+      // Store all three rate bands and retain day rates in the
+      // legacy proposedRates field for existing admin compatibility.
+      const proposedRateBandsClean = {};
+      const proposedDayRatesLegacy = {};
+
+      for (const service of form.servicesNeeded) {
+        const source = form.proposedRates?.[service] || {};
+
+        proposedRateBandsClean[service] = {
+          day: String(source.day || "").trim(),
+          night: String(source.night || "").trim(),
+          weekend: String(source.weekend || "").trim(),
+        };
+
+        proposedDayRatesLegacy[service] =
+          proposedRateBandsClean[service].day;
       }
 
       // ✅ 3) CLIENT DOC WRITE (keep it clean; no admin fields)
@@ -296,9 +346,12 @@ export default function ClientOnboarding({ currentUser }) {
 
         servicesNeeded: form.servicesNeeded,
         // ✅ NEW: proposed rates per role (client submitted)
-        proposedRates: proposedRatesClean,
+        proposedRates: proposedDayRatesLegacy,
+        proposedRateBands: proposedRateBandsClean,
         // ✅ NEW: admin will approve / review (no admin fields written here)
         ratesStatus: "pending_admin_review",
+        declarationConfirmed: true,
+        declarationConfirmedAt: serverTimestamp(),
 
         approxShiftsPerWeek: String(form.approxShiftsPerWeek || "").trim(),
         notes: form.notes?.trim() || "",
@@ -341,7 +394,8 @@ export default function ClientOnboarding({ currentUser }) {
             organisationName: form.organisationName?.trim(),
             clientOnboardingCompleted: true,
             // optional mirror for admin convenience
-            proposedRates: proposedRatesClean,
+            proposedRates: proposedDayRatesLegacy,
+        proposedRateBands: proposedRateBandsClean,
             updatedAt: serverTimestamp(),
           },
           { merge: true }
@@ -424,6 +478,7 @@ export default function ClientOnboarding({ currentUser }) {
               {step === 1 && "Organisation & contact"}
               {step === 2 && "Address & billing"}
               {step === 3 && "Services & documents"}
+              {step === 4 && "Review & confirmation"}
             </span>
           </div>
           <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -441,16 +496,122 @@ export default function ClientOnboarding({ currentUser }) {
         )}
 
         <form onSubmit={submit} className="space-y-6">
+          {step === 4 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Review client registration
+                </h2>
+                <p className="mt-1 text-xs text-slate-600">
+                  Review the details below. Use the Back button to make corrections.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Company information
+                  </h3>
+                  <dl className="mt-3 space-y-2 text-xs text-slate-700">
+                    <div><dt className="font-semibold">Company / organisation</dt><dd>{form.organisationName}</dd></div>
+                    <div><dt className="font-semibold">Registration number</dt><dd>{form.companyNumber}</dd></div>
+                    <div><dt className="font-semibold">Business type</dt><dd>{form.businessType}</dd></div>
+                    <div><dt className="font-semibold">Trading name</dt><dd>{form.tradingName || "Not provided"}</dd></div>
+                  </dl>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Main contact
+                  </h3>
+                  <dl className="mt-3 space-y-2 text-xs text-slate-700">
+                    <div><dt className="font-semibold">Name</dt><dd>{form.contactName}</dd></div>
+                    <div><dt className="font-semibold">Role</dt><dd>{form.contactRole || "Not provided"}</dd></div>
+                    <div><dt className="font-semibold">Email</dt><dd>{form.contactEmail || user?.email}</dd></div>
+                    <div><dt className="font-semibold">Phone</dt><dd>{form.contactPhone}</dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Organisation address
+                </h3>
+                <p className="mt-3 text-xs text-slate-700">
+                  {form.addressLine1}
+                  {form.addressLine2 ? `, ${form.addressLine2}` : ""}
+                  <br />
+                  {form.cityTown}
+                  {form.county ? `, ${form.county}` : ""}
+                  <br />
+                  {form.postcode}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Services and proposed rates
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {form.servicesNeeded.map((service) => {
+                    const rates = form.proposedRates?.[service] || {};
+
+                    return (
+                      <div key={service} className="rounded-lg bg-slate-50 p-3">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {service}
+                        </p>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-700">
+                          <div><span className="font-semibold">Day:</span> £{rates.day}</div>
+                          <div><span className="font-semibold">Night:</span> £{rates.night}</div>
+                          <div><span className="font-semibold">Weekend:</span> £{rates.weekend}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Billing
+                </h3>
+                <dl className="mt-3 space-y-2 text-xs text-slate-700">
+                  <div><dt className="font-semibold">Invoice email</dt><dd>{form.invoiceEmail}</dd></div>
+                  <div><dt className="font-semibold">Billing cycle</dt><dd>{form.billingCycle}</dd></div>
+                  <div><dt className="font-semibold">Approximate shifts per week</dt><dd>{form.approxShiftsPerWeek || "Not provided"}</dd></div>
+                </dl>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-sm text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={clientDeclaration}
+                  onChange={(e) => setClientDeclaration(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-cyan-700"
+                />
+                <span>
+                  I confirm that I have reviewed the client registration and that
+                  the information and proposed rates provided are complete and
+                  correct to the best of my knowledge. I understand that the
+                  proposed rates remain subject to Unity Healthcare Staffing’s
+                  review and written agreement.
+                </span>
+              </label>
+            </div>
+          )}
+
           {step === 1 && (
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Organisation name *
+                  Company / organisation name *
                 </label>
                 <input
                   className="uh-input"
                   value={form.organisationName}
                   onChange={(e) => handleChange("organisationName", e.target.value)}
+                  required
                 />
               </div>
 
@@ -485,12 +646,13 @@ export default function ClientOnboarding({ currentUser }) {
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Company number (optional)
+                  Company registration number *
                 </label>
                 <input
                   className="uh-input"
                   value={form.companyNumber}
                   onChange={(e) => handleChange("companyNumber", e.target.value)}
+                  required
                 />
               </div>
 
@@ -786,16 +948,15 @@ export default function ClientOnboarding({ currentUser }) {
                 </div>
               </div>
 
-              {/* ✅ NEW: Proposed rates block (mandatory for selected services) */}
+              {/* Proposed day, night and weekend rates */}
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-800">Proposed hourly rates *</p>
-                <p className="text-[11px] text-slate-600 mt-1">
-                  Our typical rates range from <strong>£21 to £40</strong> per hour depending on requirements.
-                  Please enter your <strong>proposed hourly rate</strong> for each selected role below.
+                <p className="text-xs font-semibold text-slate-800">
+                  Proposed hourly rates *
                 </p>
-                <p className="text-[11px] text-slate-600 mt-1">
-                  If the proposed rate is approved by admin, it becomes <strong>binding</strong> as part of your contract.
-                  If it is not acceptable, we will review and contact you.
+                <p className="mt-1 text-[11px] text-slate-600">
+                  Enter your proposed day, night and weekend hourly rates for each
+                  selected role. All rates remain subject to administrator review
+                  and agreement.
                 </p>
 
                 {!form.servicesNeeded.length ? (
@@ -803,29 +964,44 @@ export default function ClientOnboarding({ currentUser }) {
                     Select at least one service above to enter rates.
                   </div>
                 ) : (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="mt-3 space-y-4">
                     {form.servicesNeeded.map((service) => (
                       <div
                         key={service}
-                        className="rounded-xl border border-slate-200 bg-white p-3"
+                        className="rounded-xl border border-slate-200 bg-white p-4"
                       >
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                          {service} — proposed rate (£/hr) *
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-slate-600">£</span>
-                          <input
-                            className="uh-input"
-                            inputMode="decimal"
-                            value={form.proposedRates?.[service] ?? ""}
-                            onChange={(e) => handleProposedRateChange(service, e.target.value)}
-                            placeholder="e.g. 25"
-                            aria-label={`${service} proposed hourly rate`}
-                          />
-                        </div>
-                        <p className="mt-1 text-[11px] text-slate-500">
-                          Enter a positive number (e.g. 21, 28.5).
+                        <p className="text-sm font-semibold text-slate-900">
+                          {service}
                         </p>
+
+                        <div className="mt-3 grid gap-3 md:grid-cols-3">
+                          {[
+                            ["day", "Day rate"],
+                            ["night", "Night rate"],
+                            ["weekend", "Weekend rate"],
+                          ].map(([rateType, label]) => (
+                            <div key={rateType}>
+                              <label className="block text-xs font-medium text-slate-700 mb-1">
+                                {label} (£/hr) *
+                              </label>
+                              <input
+                                className="uh-input"
+                                inputMode="decimal"
+                                value={form.proposedRates?.[service]?.[rateType] ?? ""}
+                                onChange={(e) =>
+                                  handleProposedRateChange(
+                                    service,
+                                    rateType,
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="e.g. 25"
+                                aria-label={`${service} ${label}`}
+                                required
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
