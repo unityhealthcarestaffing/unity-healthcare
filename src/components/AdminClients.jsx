@@ -199,48 +199,142 @@ function DocLink({ url }) {
 }
 
 // ---------- Printing ----------
+function escapeClientPrintHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    };
+
+    return entities[character];
+  });
+}
+
+function safeClientPrintUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function openPrintWindow(title, html) {
-  const w = window.open("", "_blank", "noopener,noreferrer,width=980,height=720");
-  if (!w) {
-    alert("Popup blocked. Please allow popups to print.");
+  const printWindow = window.open("", "_blank", "width=980,height=720");
+
+  if (!printWindow) {
+    window.alert(
+      "The print window was blocked. Please allow pop-ups for this website and try again."
+    );
     return;
   }
 
-  w.document.open();
-  w.document.write(`<!doctype html>
-<html>
+  printWindow.opener = null;
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>${title}</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:24px;color:#0f172a}
-  h1{font-size:18px;margin:0 0 10px}
-  h2{font-size:12px;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.08em;color:#475569}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .card{border:1px solid #e2e8f0;border-radius:12px;padding:12px}
-  .row{display:flex;gap:8px;font-size:12px;line-height:1.45}
-  .k{min-width:140px;color:#475569}
-  .v{flex:1}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th,td{border-bottom:1px solid #e2e8f0;padding:8px;text-align:left}
-  th{color:#475569;font-weight:600;background:#f8fafc}
-  .muted{color:#64748b}
-  @media print{
-    body{margin:0}
-    .card{break-inside:avoid}
-  }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeClientPrintHtml(title)}</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #0f172a;
+      background: #fff;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    header {
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 3px solid #0e7490;
+    }
+    h1 { margin: 0; font-size: 22px; }
+    h2 {
+      margin: 0 0 8px;
+      color: #0e7490;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .company {
+      margin-bottom: 4px;
+      color: #0e7490;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .muted { color: #64748b; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .full { grid-column: 1 / -1; }
+    .card {
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      break-inside: avoid;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 8px;
+      padding: 3px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .row:last-child { border-bottom: 0; }
+    .key { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 6px;
+      vertical-align: top;
+      text-align: left;
+      border: 1px solid #cbd5e1;
+      word-break: break-word;
+    }
+    th { background: #f1f5f9; font-weight: 700; }
+    a { color: #0e7490; word-break: break-all; }
+    .declaration { background: #ecfeff; border-color: #67e8f9; }
+    footer {
+      padding-top: 10px;
+      margin-top: 14px;
+      color: #64748b;
+      border-top: 1px solid #cbd5e1;
+      font-size: 9px;
+    }
+    @media print {
+      body {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+  </style>
 </head>
 <body>
-${html}
-<script>
-  window.focus();
-  setTimeout(()=>{ window.print(); }, 200);
-</script>
+  ${html}
+  <footer>
+    Unity Healthcare Staffing Ltd — confidential client registration record.
+    Generated from the submitted online registration.
+  </footer>
+  <script>
+    window.addEventListener("load", () => {
+      window.focus();
+      setTimeout(() => window.print(), 250);
+    });
+  </script>
 </body>
 </html>`);
-  w.document.close();
+  printWindow.document.close();
 }
 
 export default function AdminClients({ currentUser, adminAccess }) {
@@ -720,103 +814,199 @@ export default function AdminClients({ currentUser, adminAccess }) {
   };
 
   const printClient = (client) => {
-    const pr = getProposedRates(client);
+    if (!client) return;
 
-    const docs = client?.documents || {};
-    const docRows = [
-      ["CQC certificate", docs.cqcUrl],
-      ["Insurance certificate", docs.insuranceUrl],
-      ["ID proof", docs.idProofUrl],
-      ["Signed contract", docs.contractUrl],
-      ["Other document", docs.otherUrl],
-    ];
+    const safe = (value, fallback = "—") => {
+      const text = String(value ?? "").trim();
+      return text ? escapeClientPrintHtml(text) : fallback;
+    };
 
-    const safe = (v) => (v == null ? "" : String(v));
+    const multiline = (value, fallback = "—") => {
+      const text = String(value ?? "").trim();
+      return text
+        ? escapeClientPrintHtml(text).replace(/\n/g, "<br />")
+        : fallback;
+    };
 
-    const title = `Client – ${safe(getDisplayName(client))}`;
+    const formatPrintDate = (value) => {
+      try {
+        if (!value) return "—";
+
+        const date = value?.toDate ? value.toDate() : new Date(value);
+        if (Number.isNaN(date.getTime())) return "—";
+
+        return new Intl.DateTimeFormat("en-GB", {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      } catch {
+        return "—";
+      }
+    };
+
+    const addressHtml = (address) => {
+      if (!address) return "—";
+      if (typeof address === "string") return multiline(address);
+
+      const parts = [
+        address.addressLine1,
+        address.addressLine2,
+        address.cityTown,
+        address.county,
+        address.postcode,
+      ]
+        .filter(Boolean)
+        .map((part) => safe(part));
+
+      return parts.length ? parts.join("<br />") : "—";
+    };
+
+    const rateBands =
+      client.proposedRateBands && typeof client.proposedRateBands === "object"
+        ? client.proposedRateBands
+        : {};
+
+    const legacyRates =
+      client.proposedRates && typeof client.proposedRates === "object"
+        ? client.proposedRates
+        : {};
+
+    const serviceNames = Array.from(
+      new Set([
+        ...(Array.isArray(client.servicesNeeded) ? client.servicesNeeded : []),
+        ...Object.keys(rateBands),
+        ...Object.keys(legacyRates),
+      ])
+    );
+
+    const rateRows = serviceNames.length
+      ? serviceNames
+          .map((service) => {
+            const band =
+              rateBands[service] && typeof rateBands[service] === "object"
+                ? rateBands[service]
+                : {};
+
+            return `
+              <tr>
+                <td>${safe(service)}</td>
+                <td>${formatRate(band.day ?? legacyRates[service])}</td>
+                <td>${formatRate(band.night)}</td>
+                <td>${formatRate(band.weekend)}</td>
+              </tr>`;
+          })
+          .join("")
+      : '<tr><td colspan="4">No proposed rates were provided.</td></tr>';
+
+    const documents = client.documents || {};
+    const documentRows = [
+      ["CQC certificate", documents.cqcUrl],
+      ["Insurance certificate", documents.insuranceUrl],
+      ["ID proof", documents.idProofUrl],
+      ["Signed contract", documents.contractUrl],
+      ["Other document", documents.otherUrl],
+    ]
+      .map(([label, value]) => {
+        const url = safeClientPrintUrl(value);
+        return `
+          <tr>
+            <td>${escapeClientPrintHtml(label)}</td>
+            <td>${
+              url
+                ? `<a href="${escapeClientPrintHtml(url)}">Open / download document</a>`
+                : "Not provided"
+            }</td>
+          </tr>`;
+      })
+      .join("");
+
+    const displayName = getDisplayName(client);
+    const title = `Client Registration - ${displayName}`;
     const html = `
-      <h1>${title}</h1>
-      <div class="muted" style="font-size:12px;margin-bottom:10px;">
-        Generated: ${new Date().toLocaleString("en-GB")}
-      </div>
+      <header>
+        <div class="company">Unity Healthcare Staffing Ltd</div>
+        <h1>Client Registration</h1>
+        <div class="muted">
+          Organisation: ${safe(displayName)}<br />
+          Client ID: ${safe(getClientCode(client))}<br />
+          Client UID: ${safe(client.uid || client.id)}<br />
+          Submitted: ${formatPrintDate(client.submittedAt || client.createdAt)}<br />
+          Generated: ${formatPrintDate(new Date())}
+        </div>
+      </header>
 
       <div class="grid">
-        <div class="card">
-          <h2>Organisation</h2>
-          <div class="row"><div class="k">Organisation name</div><div class="v">${safe(client.organisationName || "—")}</div></div>
-          <div class="row"><div class="k">Trading name</div><div class="v">${safe(client.tradingName || "—")}</div></div>
-          <div class="row"><div class="k">Business type</div><div class="v">${safe(client.businessType || client.clientType || "—")}</div></div>
-          <div class="row"><div class="k">Company number</div><div class="v">${safe(client.companyNumber || "—")}</div></div>
-          <div class="row"><div class="k">Website</div><div class="v">${safe(client.website || "—")}</div></div>
-          <div class="row"><div class="k">Client ID</div><div class="v">${safe(getClientCode(client) || "—")}</div></div>
-          <div class="row"><div class="k">UID</div><div class="v">${safe(client.uid || client.id || "—")}</div></div>
-        </div>
+        <section class="card">
+          <h2>Company information</h2>
+          <div class="row"><div class="key">Company / organisation</div><div>${safe(client.organisationName)}</div></div>
+          <div class="row"><div class="key">Trading name</div><div>${safe(client.tradingName)}</div></div>
+          <div class="row"><div class="key">Business type</div><div>${safe(client.businessType || client.clientType)}</div></div>
+          <div class="row"><div class="key">Registration number</div><div>${safe(client.companyNumber)}</div></div>
+          <div class="row"><div class="key">Website</div><div>${safe(client.website)}</div></div>
+          <div class="row"><div class="key">Account email</div><div>${safe(client.email)}</div></div>
+        </section>
 
-        <div class="card">
-          <h2>Contact</h2>
-          <div class="row"><div class="k">Contact name</div><div class="v">${safe(client.contact?.name || client.contactName || "—")}</div></div>
-          <div class="row"><div class="k">Role</div><div class="v">${safe(client.contact?.role || client.contactRole || "—")}</div></div>
-          <div class="row"><div class="k">Contact email</div><div class="v">${safe(client.contact?.email || client.contactEmail || client.email || "—")}</div></div>
-          <div class="row"><div class="k">Phone</div><div class="v">${safe(client.contact?.phone || getClientPhone(client) || "—")}</div></div>
-          <div class="row"><div class="k">Account email</div><div class="v">${safe(client.email || "—")}</div></div>
-        </div>
+        <section class="card">
+          <h2>Main contact</h2>
+          <div class="row"><div class="key">Contact name</div><div>${safe(client.contact?.name || client.contactName)}</div></div>
+          <div class="row"><div class="key">Contact role</div><div>${safe(client.contact?.role || client.contactRole)}</div></div>
+          <div class="row"><div class="key">Contact email</div><div>${safe(client.contact?.email || client.contactEmail || client.email)}</div></div>
+          <div class="row"><div class="key">Contact phone</div><div>${safe(client.contact?.phone || getClientPhone(client))}</div></div>
+        </section>
 
-        <div class="card">
-          <h2>Addresses</h2>
-          <div class="row"><div class="k">Organisation</div><div class="v">${safe(formatAddress(client.organisationAddress) || client.organisationAddressText || "—")}</div></div>
-          <div class="row"><div class="k">Invoice</div><div class="v">${safe(formatAddress(client.invoiceAddress) || "—")}</div></div>
-          <div class="row"><div class="k">Postcode</div><div class="v">${safe(getDisplayPostcode(client) || "—")}</div></div>
-        </div>
+        <section class="card">
+          <h2>Organisation address</h2>
+          <div>${addressHtml(client.organisationAddress || client.organisationAddressText)}</div>
+          <div class="row"><div class="key">Postcode</div><div>${safe(getDisplayPostcode(client))}</div></div>
+        </section>
 
-        <div class="card">
-          <h2>Billing</h2>
-          <div class="row"><div class="k">Invoice email</div><div class="v">${safe(client.invoiceEmail || "—")}</div></div>
-          <div class="row"><div class="k">Billing cycle</div><div class="v">${safe(client.billingCycle || "—")}</div></div>
-          <div class="row"><div class="k">PO number</div><div class="v">${safe(client.poNumber || "—")}</div></div>
-          <div class="row"><div class="k">Approx shifts/week</div><div class="v">${safe(client.approxShiftsPerWeek || "—")}</div></div>
-        </div>
+        <section class="card">
+          <h2>Invoice address</h2>
+          <div>${addressHtml(client.invoiceAddress)}</div>
+        </section>
 
-        <div class="card" style="grid-column:1 / -1;">
-          <h2>Services & proposed rates</h2>
-          <div class="row"><div class="k">Services needed</div><div class="v">${safe((client.servicesNeeded || []).join(" | ") || "—")}</div></div>
-          <div class="row"><div class="k">Rates decision</div><div class="v">${safe(getRatesDecision(client))}</div></div>
-          <div class="row"><div class="k">Admin notes</div><div class="v">${safe(client.ratesAdminNotes || client.adminNotes || "—")}</div></div>
+        <section class="card">
+          <h2>Billing information</h2>
+          <div class="row"><div class="key">Invoice email</div><div>${safe(client.invoiceEmail)}</div></div>
+          <div class="row"><div class="key">Billing cycle</div><div>${safe(client.billingCycle)}</div></div>
+          <div class="row"><div class="key">Purchase order number</div><div>${safe(client.poNumber)}</div></div>
+          <div class="row"><div class="key">Approximate shifts/week</div><div>${safe(client.approxShiftsPerWeek)}</div></div>
+        </section>
 
-          <div style="margin-top:10px;">
-            <table>
-              <thead><tr><th>Role</th><th>Proposed rate</th></tr></thead>
-              <tbody>
-                ${
-                  pr.length
-                    ? pr
-                        .map(
-                          ([role, rate]) =>
-                            `<tr><td>${safe(role)}</td><td>${safe(formatRate(rate))}</td></tr>`
-                        )
-                        .join("")
-                    : `<tr><td colspan="2" class="muted">No proposed rates found.</td></tr>`
-                }
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <section class="card">
+          <h2>Additional information</h2>
+          <div class="row"><div class="key">Services requested</div><div>${safe((client.servicesNeeded || []).join(" | "))}</div></div>
+          <div class="row"><div class="key">Notes supplied</div><div>${multiline(client.notes)}</div></div>
+          <div class="row"><div class="key">Registration status</div><div>${safe(client.status || "pending")}</div></div>
+          <div class="row"><div class="key">Rates review status</div><div>${safe(getRatesDecision(client))}</div></div>
+          <div class="row"><div class="key">Internal admin notes</div><div>${multiline(client.ratesAdminNotes || client.adminNotes)}</div></div>
+        </section>
 
-        <div class="card" style="grid-column:1 / -1;">
-          <h2>Documents</h2>
+        <section class="card full">
+          <h2>Services and proposed rates</h2>
+          <table>
+            <thead><tr><th>Service / role</th><th>Day rate</th><th>Night rate</th><th>Weekend rate</th></tr></thead>
+            <tbody>${rateRows}</tbody>
+          </table>
+        </section>
+
+        <section class="card full">
+          <h2>Submitted documents</h2>
           <table>
             <thead><tr><th>Document</th><th>Link</th></tr></thead>
-            <tbody>
-              ${docRows
-                .map(([label, url]) => {
-                  const u = safe(url || "");
-                  return `<tr><td>${safe(label)}</td><td>${u ? u : `<span class="muted">—</span>`}</td></tr>`;
-                })
-                .join("")}
-            </tbody>
+            <tbody>${documentRows}</tbody>
           </table>
-        </div>
-      </div>
-    `;
+        </section>
+
+        <section class="card full declaration">
+          <h2>Client confirmation</h2>
+          <div class="row"><div class="key">Confirmation recorded</div><div>${client.declarationConfirmed ? "Yes" : "Not recorded"}</div></div>
+          <div class="row"><div class="key">Confirmation date</div><div>${formatPrintDate(client.declarationConfirmedAt)}</div></div>
+        </section>
+      </div>`;
 
     openPrintWindow(title, html);
   };
@@ -1153,10 +1343,10 @@ export default function AdminClients({ currentUser, adminAccess }) {
                     type="button"
                     onClick={() => printClient(selected)}
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    title="Print client details"
+                    title="Print this registration or save it as a PDF"
                   >
                     <Printer className="h-4 w-4" />
-                    Print
+                    Print / Save PDF
                   </button>
 
                   <button
@@ -1444,9 +1634,10 @@ export default function AdminClients({ currentUser, adminAccess }) {
                           type="button"
                           onClick={() => printClient(selected)}
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-700 text-white text-xs font-semibold hover:bg-cyan-800 disabled:opacity-60"
+                          title="Print this registration or save it as a PDF"
                         >
                           <Printer className="h-4 w-4" />
-                          Print
+                          Print / Save PDF
                         </button>
                       </div>
                     </div>

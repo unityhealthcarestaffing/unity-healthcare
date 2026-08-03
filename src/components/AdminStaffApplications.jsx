@@ -210,6 +210,342 @@ async function generateUniquePublicIdForUser() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
+function escapePrintHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    };
+
+    return entities[character];
+  });
+}
+
+function printValue(value, fallback = "—") {
+  const text = String(value ?? "").trim();
+  return text ? escapePrintHtml(text) : fallback;
+}
+
+function printMultiline(value, fallback = "—") {
+  const text = String(value ?? "").trim();
+  return text
+    ? escapePrintHtml(text).replace(/\n/g, "<br />")
+    : fallback;
+}
+
+function printDate(value) {
+  try {
+    if (!value) return "—";
+
+    const date = value?.toDate ? value.toDate() : new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  } catch {
+    return "—";
+  }
+}
+
+function printYesNo(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "yes" || value === true) return "Yes";
+  if (normalized === "no" || value === false) return "No";
+  return printValue(value);
+}
+
+function safePrintUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function openStaffPrintWindow(title, bodyHtml) {
+  const printWindow = window.open("", "_blank", "width=980,height=720");
+
+  if (!printWindow) {
+    window.alert(
+      "The print window was blocked. Please allow pop-ups for this website and try again."
+    );
+    return;
+  }
+
+  printWindow.opener = null;
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapePrintHtml(title)}</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #0f172a;
+      background: #fff;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    header {
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 3px solid #0e7490;
+    }
+    h1 { margin: 0; font-size: 22px; }
+    h2 {
+      margin: 0 0 8px;
+      color: #0e7490;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .company {
+      margin-bottom: 4px;
+      color: #0e7490;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .muted { color: #64748b; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .full { grid-column: 1 / -1; }
+    .card {
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      break-inside: avoid;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 8px;
+      padding: 3px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .row:last-child { border-bottom: 0; }
+    .key { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 6px;
+      vertical-align: top;
+      text-align: left;
+      border: 1px solid #cbd5e1;
+      word-break: break-word;
+    }
+    th { background: #f1f5f9; font-weight: 700; }
+    a { color: #0e7490; word-break: break-all; }
+    .declaration { background: #ecfeff; border-color: #67e8f9; }
+    footer {
+      padding-top: 10px;
+      margin-top: 14px;
+      color: #64748b;
+      border-top: 1px solid #cbd5e1;
+      font-size: 9px;
+    }
+    @media print {
+      body {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  ${bodyHtml}
+  <footer>
+    Unity Healthcare Staffing Ltd — confidential recruitment record.
+    Generated from the submitted online application.
+  </footer>
+  <script>
+    window.addEventListener("load", () => {
+      window.focus();
+      setTimeout(() => window.print(), 250);
+    });
+  </script>
+</body>
+</html>`);
+  printWindow.document.close();
+}
+
+function printStaffApplication(application) {
+  if (!application) return;
+
+  const applicantName = displayApplicantName(application);
+  const address = application.address || {};
+  const addressHtml = [
+    address.addressLine1,
+    address.addressLine2,
+    address.cityTown,
+    address.county,
+    address.postcode,
+  ]
+    .filter(Boolean)
+    .map((part) => printValue(part))
+    .join("<br />") || "—";
+
+  const employmentHistory = Array.isArray(application.employmentHistory)
+    ? application.employmentHistory
+    : [];
+
+  const employmentRows = employmentHistory.length
+    ? employmentHistory
+        .map(
+          (employment) => `
+            <tr>
+              <td>${printValue(employment.employerName)}</td>
+              <td>${printValue(employment.jobTitle)}</td>
+              <td>${printValue(employment.startDate)}</td>
+              <td>${printValue(
+                employment.isCurrent ? "Present" : employment.endDate
+              )}</td>
+              <td>${printMultiline(employment.mainDuties)}</td>
+            </tr>`
+        )
+        .join("")
+    : '<tr><td colspan="5">No employment history was provided.</td></tr>';
+
+  const referees = getReferees(application);
+  const refereeRows = referees.length
+    ? referees
+        .map(
+          (referee, index) => `
+            <tr>
+              <td>Referee ${index + 1}</td>
+              <td>${printValue(referee.name)}</td>
+              <td>${printValue(referee.email)}</td>
+              <td>${printValue(referee.phone)}</td>
+              <td>${printValue(referee.relationship)}</td>
+            </tr>`
+        )
+        .join("")
+    : '<tr><td colspan="5">No referee information was provided.</td></tr>';
+
+  const documents = application.documents || {};
+  const documentRows = [
+    ["CV", documents.cvUrl],
+    ["Right-to-work document", documents.rightToWorkUrl],
+    ["Share-code document", documents.shareCodeUrl],
+    ["DBS document", documents.dbsUrl],
+    ["Training document", documents.trainingUrl],
+  ]
+    .map(([label, value]) => {
+      const url = safePrintUrl(value);
+      return `
+        <tr>
+          <td>${escapePrintHtml(label)}</td>
+          <td>${
+            url
+              ? `<a href="${escapePrintHtml(url)}">Open / download document</a>`
+              : "Not provided"
+          }</td>
+        </tr>`;
+    })
+    .join("");
+
+  const bodyHtml = `
+    <header>
+      <div class="company">Unity Healthcare Staffing Ltd</div>
+      <h1>Staff Application</h1>
+      <div class="muted">
+        Applicant: ${printValue(applicantName)}<br />
+        Application ID: ${printValue(application.id)}<br />
+        Staff public ID: ${printValue(application.publicId)}<br />
+        User UID: ${printValue(application.uid)}<br />
+        Submitted: ${printDate(application.createdAt || application.submittedAt)}<br />
+        Generated: ${printDate(new Date())}
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Personal information</h2>
+        <div class="row"><div class="key">Surname</div><div>${printValue(application.surname)}</div></div>
+        <div class="row"><div class="key">Other names</div><div>${printValue(application.otherNames)}</div></div>
+        <div class="row"><div class="key">Email</div><div>${printValue(application.email)}</div></div>
+        <div class="row"><div class="key">Phone</div><div>${printValue(application.phone)}</div></div>
+        <div class="row"><div class="key">Role applied for</div><div>${printValue(application.roleApplied)}</div></div>
+        <div class="row"><div class="key">Application status</div><div>${printValue(application.status || "new")}</div></div>
+      </section>
+
+      <section class="card">
+        <h2>Eligibility and safeguarding</h2>
+        <div class="row"><div class="key">3+ months' experience</div><div>${printYesNo(application.has3MonthsExperience)}</div></div>
+        <div class="row"><div class="key">Right-to-work status</div><div>${printValue(application.rightToWorkStatus)}</div></div>
+        <div class="row"><div class="key">National Insurance number</div><div>${printValue(application.niNumber)}</div></div>
+        <div class="row"><div class="key">Safeguarding investigation</div><div>${printYesNo(application.safeguardingInvestigation)}</div></div>
+        <div class="row"><div class="key">Safeguarding details</div><div>${printMultiline(application.safeguardingDetails)}</div></div>
+        <div class="row"><div class="key">Heard about Unity</div><div>${printValue(application.heardAboutUs)}</div></div>
+      </section>
+
+      <section class="card">
+        <h2>Home address</h2>
+        <div>${addressHtml}</div>
+      </section>
+
+      <section class="card">
+        <h2>Experience and availability</h2>
+        <div class="row"><div class="key">Total experience</div><div>${application.totalExperienceMonths ? `${printValue(application.totalExperienceMonths)} months` : "—"}</div></div>
+        <div class="row"><div class="key">Current role</div><div>${printValue(application.currentRole)}</div></div>
+        <div class="row"><div class="key">Preferred locations</div><div>${printValue(application.preferredLocations)}</div></div>
+        <div class="row"><div class="key">Can work nights</div><div>${printYesNo(application.canWorkNights)}</div></div>
+        <div class="row"><div class="key">Can drive</div><div>${printYesNo(application.canDrive)}</div></div>
+        <div class="row"><div class="key">Availability</div><div>${printMultiline(application.availability)}</div></div>
+        <div class="row"><div class="key">Experience summary</div><div>${printMultiline(application.experienceSummary)}</div></div>
+      </section>
+
+      <section class="card full">
+        <h2>Employment history</h2>
+        <table>
+          <thead><tr><th>Employer</th><th>Job title</th><th>Start</th><th>End</th><th>Main duties</th></tr></thead>
+          <tbody>${employmentRows}</tbody>
+        </table>
+      </section>
+
+      <section class="card full">
+        <h2>Professional referees</h2>
+        <table>
+          <thead><tr><th>Reference</th><th>Name</th><th>Email</th><th>Phone</th><th>Relationship</th></tr></thead>
+          <tbody>${refereeRows}</tbody>
+        </table>
+      </section>
+
+      <section class="card full">
+        <h2>Submitted documents</h2>
+        <table>
+          <thead><tr><th>Document</th><th>Link</th></tr></thead>
+          <tbody>${documentRows}</tbody>
+        </table>
+      </section>
+
+      <section class="card full declaration">
+        <h2>Applicant declaration</h2>
+        <div class="row"><div class="key">Declaration confirmed</div><div>${application.declarationConfirmed ? "Yes" : "Not recorded"}</div></div>
+        <div class="row"><div class="key">Confirmation date</div><div>${printDate(application.declarationConfirmedAt)}</div></div>
+      </section>
+    </div>`;
+
+  openStaffPrintWindow(`Staff Application - ${applicantName}`, bodyHtml);
+}
+
 export default function AdminStaffApplications() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -626,13 +962,24 @@ export default function AdminStaffApplications() {
                     Submitted: {formatDate(selected.createdAt)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Close
-                </button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => printStaffApplication(selected)}
+                    className="px-3 py-1.5 rounded-full bg-cyan-700 text-white text-xs font-semibold hover:bg-cyan-800"
+                    title="Print this application or save it as a PDF"
+                  >
+                    Print / Save PDF
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="px-3 py-1.5 rounded-full border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
               {/* ✅ Modal body (scrollable) */}
